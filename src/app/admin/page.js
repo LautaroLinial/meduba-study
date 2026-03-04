@@ -10,6 +10,7 @@ export default function AdminPage() {
   const [selectedYear, setSelectedYear] = useState("1");
   const [selectedMateria, setSelectedMateria] = useState("");
   const [selectedLibro, setSelectedLibro] = useState("");
+  const [pageOffset, setPageOffset] = useState(0);
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -36,7 +37,6 @@ export default function AdminPage() {
     setSelectedLibro("");
   };
 
-  // Simular progreso visual mientras se procesa
   useEffect(() => {
     let interval;
     if (uploading) {
@@ -50,7 +50,7 @@ export default function AdminPage() {
         if (currentProgress < 30) {
           setProgressStage("📤 Subiendo archivo...");
         } else if (currentProgress < 60) {
-          setProgressStage("📖 Extrayendo texto del PDF...");
+          setProgressStage("📖 Extrayendo texto página por página...");
         } else if (currentProgress < 85) {
           setProgressStage("✂️ Dividiendo en fragmentos...");
         } else {
@@ -58,7 +58,7 @@ export default function AdminPage() {
         }
 
         if (currentProgress >= 90) {
-          currentProgress = 90; // Se queda en 90 hasta que termine de verdad
+          currentProgress = 90;
           clearInterval(interval);
         }
 
@@ -87,6 +87,7 @@ export default function AdminPage() {
       formData.append("year", selectedYear);
       formData.append("materia", selectedMateria);
       formData.append("libro", selectedLibro);
+      formData.append("pageOffset", pageOffset.toString());
 
       const response = await fetch("/api/upload", {
         method: "POST",
@@ -95,11 +96,9 @@ export default function AdminPage() {
 
       const data = await response.json();
 
-      // Completar la barra al 100%
       setProgress(100);
       setProgressStage("✅ ¡Completado!");
 
-      // Esperar un momento para que se vea el 100%
       await new Promise((resolve) => setTimeout(resolve, 800));
 
       if (response.ok) {
@@ -113,7 +112,8 @@ export default function AdminPage() {
             libro: selectedLibro,
             materia: CURRICULUM[selectedYear].materias[selectedMateria].name,
             fragments: data.fragmentsAdded,
-            textLength: data.textLength,
+            totalPages: data.totalPages,
+            offset: pageOffset,
             date: new Date().toLocaleString("es-AR"),
           },
           ...prev,
@@ -160,8 +160,8 @@ export default function AdminPage() {
           <ol className="text-slate-400 text-sm space-y-1 list-decimal list-inside leading-relaxed">
             <li>Seleccioná el <strong className="text-slate-300">año</strong> y la <strong className="text-slate-300">materia</strong></li>
             <li>Elegí a qué <strong className="text-slate-300">libro</strong> pertenece el archivo</li>
+            <li>Configurá el <strong className="text-slate-300">offset de páginas</strong> si es necesario</li>
             <li>Subí el archivo (PDF, Word o texto plano)</li>
-            <li>El sistema extrae el texto y lo divide en fragmentos</li>
             <li>¡Listo! Los alumnos ya pueden preguntar sobre ese material</li>
           </ol>
         </div>
@@ -237,11 +237,48 @@ export default function AdminPage() {
             </div>
           )}
 
+          {/* Offset de páginas */}
+          {selectedLibro && (
+            <div>
+              <label className="block text-sm text-slate-400 mb-2 font-medium">
+                4. Offset de páginas (diferencia entre numeración del libro y del PDF)
+              </label>
+              <div className="p-4 bg-amber-500/[0.06] border border-amber-500/15 rounded-xl mb-3">
+                <p className="text-amber-300 text-sm leading-relaxed">
+                  <strong>¿Cómo calcularlo?</strong> Abrí el PDF y buscá una página que tenga número impreso (ej: "627" abajo). 
+                  Fijate qué número de página dice tu lector de PDF para esa misma página (ej: "607"). 
+                  El offset es: <strong>627 - 607 = 20</strong>. Poné <strong>20</strong> abajo.
+                </p>
+                <p className="text-amber-300/70 text-xs mt-2">
+                  Si la numeración del PDF coincide con la del libro, dejá 0.
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  value={pageOffset}
+                  onChange={(e) => setPageOffset(parseInt(e.target.value) || 0)}
+                  className="w-32 px-4 py-3 rounded-xl text-sm text-white font-mono text-center"
+                  style={{
+                    backgroundColor: "#1e293b",
+                    border: "1px solid #334155",
+                    outline: "none",
+                  }}
+                  min="-100"
+                  max="100"
+                />
+                <span className="text-slate-500 text-sm">
+                  Página del libro = Página del PDF + {pageOffset}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Upload de archivo */}
           {selectedLibro && (
             <div>
               <label className="block text-sm text-slate-400 mb-2 font-medium">
-                4. Subí el archivo
+                5. Subí el archivo
               </label>
               <div
                 onClick={() => !uploading && fileInputRef.current?.click()}
@@ -292,11 +329,7 @@ export default function AdminPage() {
                   className="h-full rounded-full transition-all duration-500 ease-out"
                   style={{
                     width: `${progress}%`,
-                    backgroundColor: progress >= 100
-                      ? "linear-gradient(90deg, #10b981, #34d399)"
-                      : "linear-gradient(90deg, #8b5cf6, #6366f1, #8b5cf6)",
-                    backgroundSize: "200% 100%",
-                    animation: progress < 100 ? "shimmer 2s infinite" : "none",
+                    backgroundColor: progress >= 100 ? "#10b981" : "#8b5cf6",
                   }}
                 />
               </div>
@@ -346,7 +379,7 @@ export default function AdminPage() {
                   <div className="flex-1">
                     <div className="text-white text-sm font-medium">{item.fileName}</div>
                     <div className="text-slate-500 text-xs">
-                      {item.libro} → {item.materia} · {item.fragments} fragmentos · {(item.textLength / 1024).toFixed(0)} KB de texto
+                      {item.libro} → {item.materia} · {item.fragments} fragmentos · {item.totalPages} páginas {item.offset !== 0 && `· Offset: +${item.offset}`}
                     </div>
                   </div>
                   <div className="text-emerald-400 text-xs font-medium">✓ Cargado</div>
@@ -360,21 +393,13 @@ export default function AdminPage() {
         <div className="mt-12 p-5 bg-sky-500/[0.06] border border-sky-500/10 rounded-xl">
           <h3 className="text-sky-300 font-semibold mb-2">💡 Tips</h3>
           <ul className="text-slate-400 text-sm space-y-1 leading-relaxed">
-            <li>• Podés subir <strong className="text-slate-300">varios archivos</strong> del mismo libro (capítulo por capítulo)</li>
+            <li>• El <strong className="text-slate-300">offset</strong> es clave para que las citas tengan la página correcta del libro</li>
+            <li>• Podés subir <strong className="text-slate-300">varios archivos</strong> del mismo libro</li>
             <li>• Los <strong className="text-slate-300">PDFs con texto seleccionable</strong> funcionan mejor que los escaneados</li>
-            <li>• Para archivos muy grandes (&gt;50MB), es mejor dividirlos por capítulo</li>
             <li>• Cuanto más material cargues, mejores serán las respuestas del tutor</li>
           </ul>
         </div>
       </main>
-
-      {/* CSS para la animación de la barra */}
-      <style jsx>{`
-        @keyframes shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-      `}</style>
     </div>
   );
 }

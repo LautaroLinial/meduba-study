@@ -1,62 +1,158 @@
 // ============================================================
-// MATERIAL STORE - Almacenamiento y búsqueda de material
-// Guarda los fragmentos de texto de los PDFs y permite buscarlos
+// MATERIAL STORE - Almacenamiento y búsqueda MEJORADA
+// Búsqueda más inteligente con sinónimos y matching parcial
 // ============================================================
 
 import fs from "fs";
 import path from "path";
 
-// Carpeta donde se guardan los datos
 const DATA_DIR = path.join(process.cwd(), "data", "materiales");
 
-// Asegurarse de que la carpeta existe
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
 }
 
-// Generar la ruta del archivo JSON para una materia
 function getMateriaPath(year, materiaKey) {
   return path.join(DATA_DIR, `${year}_${materiaKey}.json`);
 }
 
 // ============================================================
-// GUARDAR MATERIAL
+// SINÓNIMOS MÉDICOS para mejorar la búsqueda
 // ============================================================
 
-export function saveMaterial({ year, materia, libro, fragments }) {
+const MEDICAL_SYNONYMS = {
+  "hueso": ["óseo", "oseo", "esqueleto", "esquelético", "osteología", "osteologia"],
+  "músculo": ["musculo", "muscular", "miología", "miologia"],
+  "nervio": ["nervioso", "neural", "inervación", "inervacion", "neurología", "neurologia"],
+  "arteria": ["arterial", "vascular", "vaso", "irrigación", "irrigacion"],
+  "vena": ["venoso", "venosa", "drenaje"],
+  "túnel carpiano": ["tunel carpiano", "canal del carpo", "conducto carpiano", "retináculo flexor", "retinaculo flexor"],
+  "corazón": ["corazon", "cardíaco", "cardiaco", "miocardio", "pericardio"],
+  "pulmón": ["pulmon", "pulmonar", "respiratorio", "bronquio", "alveolo"],
+  "riñón": ["rinon", "renal", "nefrona", "nefron", "glomerulo"],
+  "hígado": ["higado", "hepático", "hepatico", "hepatocito"],
+  "estómago": ["estomago", "gástrico", "gastrico"],
+  "intestino": ["entérico", "enterico", "duodeno", "yeyuno", "íleon", "ileon", "colon"],
+  "cerebro": ["cerebral", "encéfalo", "encefalo", "encefálico", "encefalico", "corteza"],
+  "médula": ["medula", "medular", "espinal"],
+  "columna": ["vertebral", "raquis", "raquídeo", "raquideo", "vértebra", "vertebra"],
+  "brazo": ["braquial", "miembro superior", "humeral", "húmero", "humero"],
+  "pierna": ["crural", "miembro inferior", "femoral", "fémur", "femur", "tibial", "tibia"],
+  "mano": ["manual", "palmar", "carpo", "metacarpo", "falange"],
+  "pie": ["podal", "plantar", "tarso", "metatarso"],
+  "cabeza": ["cefálico", "cefalico", "craneal", "cráneo", "craneo"],
+  "cuello": ["cervical", "cervicales"],
+  "tórax": ["torax", "torácico", "toracico", "pectoral", "pecho"],
+  "abdomen": ["abdominal", "peritoneo", "peritoneal"],
+  "pelvis": ["pélvico", "pelvico", "pelviano"],
+  "célula": ["celula", "celular", "citoplasma", "citoplasmático"],
+  "tejido": ["tisular", "histológico", "histologico"],
+  "sangre": ["hemático", "hematico", "sanguíneo", "sanguineo", "hematológico"],
+  "inflamación": ["inflamacion", "inflamatorio", "flogosis"],
+  "tumor": ["tumoral", "neoplasia", "neoplásico", "neoplasico", "cáncer", "cancer"],
+  "fractura": ["ósea", "osea"],
+  "anterior": ["ventral"],
+  "posterior": ["dorsal"],
+  "superior": ["craneal", "cefálico"],
+  "inferior": ["caudal"],
+  "lateral": ["externo"],
+  "medial": ["interno"],
+};
+
+// Expandir query con sinónimos
+function expandQuery(query) {
+  const words = query.toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
+
+  const expandedWords = [...words];
+
+  // Buscar sinónimos para cada palabra
+  words.forEach((word) => {
+    Object.entries(MEDICAL_SYNONYMS).forEach(([key, synonyms]) => {
+      const keyClean = key.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      const allTerms = [keyClean, ...synonyms.map(s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase())];
+      
+      if (allTerms.some((term) => term.includes(word) || word.includes(term))) {
+        allTerms.forEach((term) => {
+          if (!expandedWords.includes(term)) {
+            expandedWords.push(term);
+          }
+        });
+      }
+    });
+  });
+
+  // También buscar la frase completa
+  const fullPhrase = query.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  Object.entries(MEDICAL_SYNONYMS).forEach(([key, synonyms]) => {
+    const keyClean = key.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const allTerms = [keyClean, ...synonyms.map(s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase())];
+
+    if (allTerms.some((term) => fullPhrase.includes(term))) {
+      allTerms.forEach((term) => {
+        term.split(/\s+/).forEach((t) => {
+          if (t.length > 2 && !expandedWords.includes(t)) {
+            expandedWords.push(t);
+          }
+        });
+      });
+    }
+  });
+
+  return expandedWords;
+}
+
+// ============================================================
+// GUARDAR MATERIAL CON PÁGINAS
+// ============================================================
+
+export function saveMaterialWithPages({ year, materia, libro, fragments }) {
   ensureDir(DATA_DIR);
   const filePath = getMateriaPath(year, materia);
 
-  // Cargar datos existentes o crear nuevos
   let data = { fragments: [] };
   if (fs.existsSync(filePath)) {
     const raw = fs.readFileSync(filePath, "utf-8");
     data = JSON.parse(raw);
   }
 
-  // Agregar los nuevos fragmentos
-  const newFragments = fragments.map((text, index) => ({
+  const newFragments = fragments.map((frag, index) => ({
     id: `${Date.now()}_${index}`,
-    text: text,
+    text: frag.text,
+    page: frag.page,
     libro: libro,
     fechaCarga: new Date().toISOString(),
   }));
 
   data.fragments = [...data.fragments, ...newFragments];
 
-  // Guardar
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+
+  const pages = [...new Set(newFragments.map((f) => f.page).filter(Boolean))];
 
   return {
     added: newFragments.length,
     total: data.fragments.length,
+    totalPages: pages.length,
   };
 }
 
+export function saveMaterial({ year, materia, libro, fragments }) {
+  return saveMaterialWithPages({
+    year,
+    materia,
+    libro,
+    fragments: fragments.map((text) => ({ text, page: null })),
+  });
+}
+
 // ============================================================
-// BUSCAR MATERIAL RELEVANTE
+// BUSCAR MATERIAL RELEVANTE (MEJORADA)
 // ============================================================
 
 export function searchMaterial(year, materiaKey, query) {
@@ -73,13 +169,8 @@ export function searchMaterial(year, materiaKey, query) {
     return [];
   }
 
-  // Búsqueda por palabras clave (simple pero efectiva)
-  const queryWords = query
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // Quitar acentos para mejor matching
-    .split(/\s+/)
-    .filter((w) => w.length > 2); // Ignorar palabras muy cortas
+  // Expandir la query con sinónimos
+  const expandedWords = expandQuery(query);
 
   const scored = data.fragments.map((fragment) => {
     const text = fragment.text
@@ -88,19 +179,30 @@ export function searchMaterial(year, materiaKey, query) {
       .replace(/[\u0300-\u036f]/g, "");
 
     let score = 0;
-    queryWords.forEach((word) => {
-      // Contar cuántas veces aparece cada palabra
+
+    expandedWords.forEach((word) => {
+      // Búsqueda de palabra completa
       const regex = new RegExp(word, "g");
       const matches = text.match(regex);
       if (matches) {
-        score += matches.length;
+        score += matches.length * 2;
+      }
+
+      // Búsqueda parcial (la palabra está contenida)
+      if (text.includes(word)) {
+        score += 1;
       }
     });
+
+    // Bonus si la frase exacta de la query aparece en el texto
+    const queryClean = query.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (text.includes(queryClean)) {
+      score += 10;
+    }
 
     return { ...fragment, score };
   });
 
-  // Devolver los fragmentos más relevantes (máximo 5)
   return scored
     .filter((f) => f.score > 0)
     .sort((a, b) => b.score - a.score)
@@ -108,7 +210,43 @@ export function searchMaterial(year, materiaKey, query) {
 }
 
 // ============================================================
-// OBTENER ESTADÍSTICAS DE UNA MATERIA
+// OBTENER FRAGMENTO POR ID
+// ============================================================
+
+export function getFragmentById(year, materiaKey, fragmentId) {
+  const filePath = getMateriaPath(year, materiaKey);
+
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const data = JSON.parse(raw);
+
+  return data.fragments.find((f) => f.id === fragmentId) || null;
+}
+
+// ============================================================
+// OBTENER TODOS LOS FRAGMENTOS DE UNA PÁGINA
+// ============================================================
+
+export function getPageFragments(year, materiaKey, libro, page) {
+  const filePath = getMateriaPath(year, materiaKey);
+
+  if (!fs.existsSync(filePath)) {
+    return [];
+  }
+
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const data = JSON.parse(raw);
+
+  return data.fragments.filter(
+    (f) => f.libro === libro && f.page === page
+  );
+}
+
+// ============================================================
+// ESTADÍSTICAS
 // ============================================================
 
 export function getMaterialStats(year, materiaKey) {
@@ -133,10 +271,6 @@ export function getMaterialStats(year, materiaKey) {
   };
 }
 
-// ============================================================
-// LISTAR TODO EL MATERIAL CARGADO
-// ============================================================
-
 export function listAllMaterial() {
   ensureDir(DATA_DIR);
 
@@ -155,10 +289,6 @@ export function listAllMaterial() {
 
   return results;
 }
-
-// ============================================================
-// BORRAR MATERIAL DE UNA MATERIA
-// ============================================================
 
 export function deleteMaterial(year, materiaKey) {
   const filePath = getMateriaPath(year, materiaKey);

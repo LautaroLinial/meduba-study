@@ -1,7 +1,7 @@
 // ============================================================
 // API ROUTE - /api/chat
-// Recibe la pregunta, busca material relevante, y le pide
-// a Claude que responda basándose en ese material
+// Busca material relevante y le pide a Claude que responda
+// Devuelve los fragmentos usados para resaltar en el modal
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -13,7 +13,6 @@ export async function POST(request) {
   try {
     const { message, year, materia: materiaKey, history } = await request.json();
 
-    // Verificar API key
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
@@ -22,7 +21,6 @@ export async function POST(request) {
       );
     }
 
-    // Obtener datos de la materia
     const materia = getMateria(year, materiaKey);
     if (!materia) {
       return NextResponse.json(
@@ -33,19 +31,19 @@ export async function POST(request) {
 
     const yearData = CURRICULUM[year];
 
-    // ============================================================
-    // BUSCAR MATERIAL RELEVANTE
-    // ============================================================
+    // Buscar material relevante
     const relevantFragments = searchMaterial(year, materiaKey, message);
 
     let materialContext = "";
     if (relevantFragments.length > 0) {
       materialContext = relevantFragments
-        .map((f, i) => `--- Fragmento ${i + 1} (${f.libro}) ---\n${f.text.substring(0, 1500)}`)
+        .map((f, i) => {
+          const pageInfo = f.page ? ` (Página ${f.page})` : "";
+          return `--- Fragmento ${i + 1}: ${f.libro}${pageInfo} [ID:${f.id}] ---\n${f.text.substring(0, 1500)}`;
+        })
         .join("\n\n");
     }
 
-    // Construir el system prompt con el material encontrado
     const systemPrompt = buildSystemPrompt({
       materia: materia.name,
       año: yearData.name,
@@ -53,25 +51,22 @@ export async function POST(request) {
       material: materialContext,
     });
 
-    // Construir el historial de mensajes para Claude
     const claudeMessages = [];
 
     if (history && history.length > 0) {
       history.forEach((msg) => {
         claudeMessages.push({
           role: msg.role,
-          content: msg.content,
+          content: typeof msg.content === "string" ? msg.content : msg.content,
         });
       });
     }
 
-    // Agregar el mensaje actual con el contexto del material
     claudeMessages.push({
       role: "user",
       content: buildQueryPrompt(message, materialContext),
     });
 
-    // Llamar a la API de Claude
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -91,10 +86,7 @@ export async function POST(request) {
       const errorData = await response.json().catch(() => ({}));
       console.error("Error de API de Claude:", errorData);
       return NextResponse.json(
-        {
-          error: `Error de la API: ${response.status}`,
-          details: errorData,
-        },
+        { error: `Error de la API: ${response.status}`, details: errorData },
         { status: response.status }
       );
     }
@@ -106,16 +98,17 @@ export async function POST(request) {
       .map((block) => block.text)
       .join("\n");
 
-    // Agregar info sobre las fuentes usadas
-    let sourcesNote = "";
-    if (relevantFragments.length > 0) {
-      const librosUsados = [...new Set(relevantFragments.map((f) => f.libro))];
-      sourcesNote = `\n\n---\n📚 *Fuentes consultadas: ${librosUsados.join(", ")}*`;
-    }
+    // Preparar los fragmentos usados para que el frontend pueda resaltar
+    const usedFragments = relevantFragments.map((f) => ({
+      page: f.page,
+      libro: f.libro,
+      text: f.text.substring(0, 1500),
+    }));
 
     return NextResponse.json({
-      response: responseText + sourcesNote,
-      sourcesUsed: relevantFragments.length,
+      response: responseText,
+      sources: [],
+      usedFragments: usedFragments,
     });
 
   } catch (error) {
