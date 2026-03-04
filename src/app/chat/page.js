@@ -34,7 +34,7 @@ function ChatContent() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const openPage = useCallback((libro, page) => {
+  const openPage = useCallback((libro, page, fragmentText) => {
     const libroCompleto = materia.libros.find(l =>
       l.toLowerCase().includes(libro.toLowerCase().split("&")[0].trim().split(" ")[0])
     ) || libro;
@@ -47,6 +47,7 @@ function ChatContent() {
       libro: libroCompleto,
       page,
       pdfUrl: `/api/page?${params}`,
+      fragmentText: fragmentText || "",
     });
   }, [year, materiaKey, materia]);
 
@@ -95,6 +96,13 @@ function ChatContent() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
 
+  function getFragmentForPage(messageIndex, page) {
+    const msg = messages[messageIndex];
+    if (!msg || !msg.usedFragments) return "";
+    const frag = msg.usedFragments.find(f => f.page === page);
+    return frag ? frag.text : "";
+  }
+
   function formatMessageWithCitations(text, messageIndex) {
     let html = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br/>");
 
@@ -103,7 +111,7 @@ function ChatContent() {
     html = html.replace(citationRegex, (match, libroRaw, pageNum) => {
       const libro = libroRaw.trim();
       const page = pageNum.trim().split(/[-–]/)[0].trim();
-      return `<button class="citation-btn" data-libro="${libro}" data-page="${page}" style="display:inline;background:rgba(14,165,233,0.15);color:#7dd3fc;padding:2px 8px;border-radius:6px;border:1px solid rgba(14,165,233,0.3);cursor:pointer;font-size:inherit;font-family:inherit;transition:all 0.2s;"
+      return `<button class="citation-btn" data-libro="${libro}" data-page="${page}" data-msgindex="${messageIndex}" style="display:inline;background:rgba(14,165,233,0.15);color:#7dd3fc;padding:2px 8px;border-radius:6px;border:1px solid rgba(14,165,233,0.3);cursor:pointer;font-size:inherit;font-family:inherit;transition:all 0.2s;"
         onmouseover="this.style.background='rgba(14,165,233,0.3)'"
         onmouseout="this.style.background='rgba(14,165,233,0.15)'"
       >📖 ${libro}, pág. ${pageNum} — click para ver</button>`;
@@ -117,9 +125,22 @@ function ChatContent() {
     if (btn) {
       const libro = btn.getAttribute("data-libro");
       const page = btn.getAttribute("data-page");
-      if (libro && page) openPage(libro, parseInt(page));
+      const msgIndex = parseInt(btn.getAttribute("data-msgindex"));
+      const fragmentText = getFragmentForPage(msgIndex, parseInt(page));
+      if (libro && page) openPage(libro, parseInt(page), fragmentText);
     }
   };
+
+  // Extraer las oraciones más relevantes del fragmento
+  function getRelevantSentences(fragmentText, maxSentences = 8) {
+    if (!fragmentText) return [];
+    const sentences = fragmentText
+      .replace(/\n+/g, " ")
+      .replace(/\s+/g, " ")
+      .split(/(?<=[.!?])\s+/)
+      .filter(s => s.trim().length > 30);
+    return sentences.slice(0, maxSentences);
+  }
 
   return (
     <div className="h-screen bg-slate-950 text-white flex flex-col">
@@ -195,26 +216,19 @@ function ChatContent() {
                   className="block w-full text-left p-2 mb-1.5 rounded-lg text-sky-300 text-sm hover:bg-sky-500/10 border border-transparent hover:border-sky-500/15 transition-all"
                 >{tema}</button>
               ))}
-              <div className="mt-6 p-3.5 bg-indigo-500/[0.06] border border-indigo-500/10 rounded-xl">
-                <p className="text-indigo-300 text-xs font-semibold mb-1">💡 Citas interactivas</p>
-                <p className="text-slate-500 text-xs leading-relaxed">
-                  Hacé click en las citas para ver la página del libro.
-                  Podés seleccionar y copiar texto directamente.
-                </p>
-              </div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Modal con PDF embebido */}
+      {/* Modal con PDF + panel de texto relevante */}
       {pageModal && (
         <div
           style={{ position:"fixed", inset:0, backgroundColor:"rgba(0,0,0,0.95)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:"16px" }}
           onClick={() => setPageModal(null)}
         >
           <div
-            style={{ backgroundColor:"#0f172a", border:"1px solid #334155", borderRadius:"16px", maxWidth:"900px", width:"100%", maxHeight:"90vh", overflow:"hidden", display:"flex", flexDirection:"column", boxShadow:"0 25px 50px rgba(0,0,0,0.8)" }}
+            style={{ backgroundColor:"#0f172a", border:"1px solid #334155", borderRadius:"16px", maxWidth:"1200px", width:"100%", maxHeight:"90vh", overflow:"hidden", display:"flex", flexDirection:"column", boxShadow:"0 25px 50px rgba(0,0,0,0.8)" }}
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
@@ -229,18 +243,85 @@ function ChatContent() {
               >✕</button>
             </div>
 
-            {/* PDF embebido - texto seleccionable nativamente */}
-            <div style={{ flex:1, overflow:"hidden" }}>
-              <iframe
-                src={pageModal.pdfUrl}
-                style={{ width:"100%", height:"100%", border:"none", minHeight:"70vh" }}
-                title={`${pageModal.libro} - Página ${pageModal.page}`}
-              />
+            {/* Contenido: PDF + panel lateral */}
+            <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
+              {/* PDF embebido */}
+              <div style={{ flex:1, overflow:"hidden" }}>
+                <iframe
+                  src={pageModal.pdfUrl}
+                  style={{ width:"100%", height:"100%", border:"none", minHeight:"70vh" }}
+                  title={`${pageModal.libro} - Página ${pageModal.page}`}
+                />
+              </div>
+
+              {/* Panel lateral: texto relevante */}
+              {pageModal.fragmentText && (
+                <div style={{
+                  width:"320px", borderLeft:"1px solid #1e293b", overflow:"auto",
+                  flexShrink:0, display:"flex", flexDirection:"column",
+                }}>
+                  {/* Header del panel */}
+                  <div style={{
+                    padding:"14px 16px", borderBottom:"1px solid #1e293b",
+                    flexShrink:0,
+                  }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:"8px", marginBottom:"6px" }}>
+                      <div style={{ width:"12px", height:"12px", backgroundColor:"rgba(250,204,21,0.5)", borderRadius:"3px" }} />
+                      <span style={{ color:"#facc15", fontSize:"13px", fontWeight:600 }}>
+                        Información utilizada
+                      </span>
+                    </div>
+                    <p style={{ color:"#64748b", fontSize:"11px", lineHeight:"1.4", margin:0 }}>
+                      El tutor usó este texto de la página {pageModal.page} para su respuesta. Buscalo en el PDF de la izquierda.
+                    </p>
+                  </div>
+
+                  {/* Oraciones relevantes */}
+                  <div style={{ padding:"12px 16px", overflow:"auto", flex:1 }}>
+                    {getRelevantSentences(pageModal.fragmentText).map((sentence, idx) => (
+                      <div
+                        key={idx}
+                        style={{
+                          padding:"10px 12px",
+                          marginBottom:"8px",
+                          backgroundColor:"rgba(250,204,21,0.08)",
+                          borderLeft:"3px solid rgba(250,204,21,0.5)",
+                          borderRadius:"0 8px 8px 0",
+                          color:"#e2e8f0",
+                          fontSize:"13px",
+                          lineHeight:"1.6",
+                          userSelect:"text",
+                          cursor:"text",
+                        }}
+                      >
+                        {sentence}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Botón copiar */}
+                  <div style={{ padding:"12px 16px", borderTop:"1px solid #1e293b", flexShrink:0 }}>
+                    <button
+                      onClick={() => {
+                        const sentences = getRelevantSentences(pageModal.fragmentText);
+                        navigator.clipboard.writeText(sentences.join("\n\n"));
+                      }}
+                      style={{
+                        width:"100%", padding:"8px", borderRadius:"8px", fontSize:"12px",
+                        cursor:"pointer", border:"1px solid rgba(14,165,233,0.3)",
+                        backgroundColor:"rgba(14,165,233,0.1)", color:"#7dd3fc",
+                      }}
+                    >
+                      📋 Copiar texto relevante
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Footer */}
             <div style={{ padding:"10px 24px", borderTop:"1px solid #1e293b", fontSize:"11px", color:"#475569", flexShrink:0 }}>
-              {pageModal.libro} — Página {pageModal.page} · Podés seleccionar y copiar texto directamente
+              {pageModal.libro} — Página {pageModal.page} · Podés seleccionar y copiar texto del PDF
             </div>
           </div>
         </div>
