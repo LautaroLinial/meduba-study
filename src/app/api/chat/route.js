@@ -1,18 +1,19 @@
 // ============================================================
 // API ROUTE - /api/chat
-// Este archivo conecta tu web con Claude (la IA)
-// El usuario NO ve este archivo, corre en el servidor
+// Recibe la pregunta, busca material relevante, y le pide
+// a Claude que responda basándose en ese material
 // ============================================================
 
 import { NextResponse } from "next/server";
 import { buildSystemPrompt, buildQueryPrompt } from "@/lib/systemPrompt";
 import { getMateria, CURRICULUM } from "@/lib/curriculum";
+import { searchMaterial } from "@/lib/materialStore";
 
 export async function POST(request) {
   try {
     const { message, year, materia: materiaKey, history } = await request.json();
 
-    // Verificar que la API key está configurada
+    // Verificar API key
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
@@ -32,18 +33,29 @@ export async function POST(request) {
 
     const yearData = CURRICULUM[year];
 
-    // Construir el system prompt
+    // ============================================================
+    // BUSCAR MATERIAL RELEVANTE
+    // ============================================================
+    const relevantFragments = searchMaterial(year, materiaKey, message);
+
+    let materialContext = "";
+    if (relevantFragments.length > 0) {
+      materialContext = relevantFragments
+        .map((f, i) => `--- Fragmento ${i + 1} (${f.libro}) ---\n${f.text.substring(0, 1500)}`)
+        .join("\n\n");
+    }
+
+    // Construir el system prompt con el material encontrado
     const systemPrompt = buildSystemPrompt({
       materia: materia.name,
       año: yearData.name,
       libros: materia.libros,
-      material: "", // Acá se va a inyectar el material cargado cuando implementemos la base de datos
+      material: materialContext,
     });
 
     // Construir el historial de mensajes para Claude
     const claudeMessages = [];
 
-    // Agregar historial previo (últimos mensajes)
     if (history && history.length > 0) {
       history.forEach((msg) => {
         claudeMessages.push({
@@ -53,10 +65,10 @@ export async function POST(request) {
       });
     }
 
-    // Agregar el mensaje actual
+    // Agregar el mensaje actual con el contexto del material
     claudeMessages.push({
       role: "user",
-      content: buildQueryPrompt(message, ""), // El segundo parámetro será el contexto del material cargado
+      content: buildQueryPrompt(message, materialContext),
     });
 
     // Llamar a la API de Claude
@@ -69,7 +81,7 @@ export async function POST(request) {
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 4096,
+        max_tokens: 2048,
         system: systemPrompt,
         messages: claudeMessages,
       }),
@@ -89,13 +101,22 @@ export async function POST(request) {
 
     const data = await response.json();
 
-    // Extraer el texto de la respuesta
     const responseText = data.content
       .filter((block) => block.type === "text")
       .map((block) => block.text)
       .join("\n");
 
-    return NextResponse.json({ response: responseText });
+    // Agregar info sobre las fuentes usadas
+    let sourcesNote = "";
+    if (relevantFragments.length > 0) {
+      const librosUsados = [...new Set(relevantFragments.map((f) => f.libro))];
+      sourcesNote = `\n\n---\n📚 *Fuentes consultadas: ${librosUsados.join(", ")}*`;
+    }
+
+    return NextResponse.json({
+      response: responseText + sourcesNote,
+      sourcesUsed: relevantFragments.length,
+    });
 
   } catch (error) {
     console.error("Error en /api/chat:", error);
