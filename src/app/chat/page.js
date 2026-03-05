@@ -12,34 +12,28 @@ const yearColors = {
 const FUN_FACTS = [
   "🧠 El cerebro humano consume el 20% de la energía total del cuerpo, aunque solo representa el 2% del peso corporal.",
   "❤️ El corazón late aproximadamente 100.000 veces por día, bombeando unos 7.500 litros de sangre.",
-  "🦴 Los bebés nacen con alrededor de 300 huesos. Muchos se fusionan durante el crecimiento hasta llegar a 206 en el adulto.",
+  "🦴 Los bebés nacen con alrededor de 300 huesos. Muchos se fusionan hasta llegar a 206 en el adulto.",
   "👃 La nariz humana puede detectar más de 1 billón de olores distintos.",
   "🔬 Si pudieras estirar todo el ADN de una sola célula, mediría aproximadamente 2 metros.",
   "💉 Los glóbulos rojos tardan solo 20 segundos en completar un circuito por todo el cuerpo.",
-  "🫁 Los pulmones tienen una superficie interna de aproximadamente 70 m², equivalente a una cancha de tenis.",
+  "🫁 Los pulmones tienen una superficie interna de ~70 m², equivalente a una cancha de tenis.",
   "🧬 El cuerpo humano produce alrededor de 3,8 millones de células por segundo.",
   "👁️ El ojo humano puede distinguir aproximadamente 10 millones de colores distintos.",
-  "🦠 En el cuerpo humano hay más bacterias que células propias: se estiman unos 38 billones de microorganismos.",
-  "💓 La aorta, la arteria más grande del cuerpo, tiene un diámetro similar al de una manguera de jardín.",
+  "🦠 En el cuerpo humano hay más bacterias que células propias: ~38 billones de microorganismos.",
+  "💓 La aorta tiene un diámetro similar al de una manguera de jardín.",
   "🧠 Las neuronas transmiten señales a velocidades de hasta 430 km/h.",
-  "🫀 El corazón de una mujer late en promedio más rápido que el de un hombre.",
-  "🦴 El fémur es el hueso más largo y fuerte del cuerpo humano. Puede soportar hasta 30 veces el peso corporal.",
-  "💊 La aspirina fue derivada de la corteza del sauce, usada como remedio desde la antigüedad por los egipcios.",
-  "🔬 Un solo mililitro de sangre contiene aproximadamente 5 millones de glóbulos rojos.",
-  "🧬 Si pudieras unir todo el ADN de tu cuerpo, la cadena llegaría al sol y volvería unas 600 veces.",
-  "👁️ Los músculos que controlan los ojos son los más activos del cuerpo: se mueven más de 100.000 veces por día.",
+  "🦴 El fémur puede soportar hasta 30 veces el peso corporal.",
+  "💊 La aspirina fue derivada de la corteza del sauce, usada desde la antigüedad.",
+  "🔬 Un solo mililitro de sangre contiene ~5 millones de glóbulos rojos.",
+  "🧬 Si unieras todo el ADN de tu cuerpo, llegaría al sol y volvería ~600 veces.",
   "🫁 Un adulto inhala y exhala entre 15.000 y 20.000 litros de aire por día.",
   "🧠 El cerebro está compuesto por aproximadamente un 75% de agua.",
-  "🦴 El hueso hioides, ubicado en el cuello, es el único hueso del cuerpo que no se articula con ningún otro.",
-  "❤️ El corazón comienza a latir a las 4 semanas de gestación y no para hasta la muerte.",
-  "🔬 Los capilares son tan finos que los glóbulos rojos deben pasar de a uno, deformándose para poder circular.",
-  "💉 El cuerpo humano tiene aproximadamente 96.000 km de vasos sanguíneos.",
-  "🧬 Cada célula del cuerpo contiene una copia completa del genoma humano: unos 20.000 genes.",
-  "🫀 El miocardio es el único músculo del cuerpo que nunca se fatiga en condiciones normales.",
-  "👃 El nervio olfatorio (I par craneal) es el único nervio craneal que se regenera constantemente.",
-  "🧠 El hipotálamo, del tamaño de una almendra, regula la temperatura, el hambre, la sed y el sueño.",
-  "🦠 La flora intestinal pesa entre 1 y 2 kg y es esencial para la digestión y la inmunidad.",
-  "💊 La penicilina fue descubierta por Alexander Fleming en 1928 de forma accidental, a partir de un hongo.",
+  "🦴 El hueso hioides es el único que no se articula con ningún otro.",
+  "💉 El cuerpo tiene aproximadamente 96.000 km de vasos sanguíneos.",
+  "🫀 El miocardio es el único músculo que nunca se fatiga en condiciones normales.",
+  "👃 El nervio olfatorio es el único par craneal que se regenera constantemente.",
+  "🦠 La flora intestinal pesa entre 1 y 2 kg.",
+  "💊 La penicilina fue descubierta por Fleming en 1928 de forma accidental.",
 ];
 
 function ChatContent() {
@@ -47,28 +41,48 @@ function ChatContent() {
   const router = useRouter();
   const year = searchParams.get("year");
   const materiaKey = searchParams.get("materia");
+  const catedraNum = searchParams.get("catedra") || "1";
 
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [funFact, setFunFact] = useState("");
   const [pageModal, setPageModal] = useState(null);
+  const [loadedLibros, setLoadedLibros] = useState([]);
+  const [activeLibros, setActiveLibros] = useState([]);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
   const yearData = CURRICULUM[year];
   const materia = getMateria(year, materiaKey);
+  const catedraData = materia?.catedras?.[catedraNum];
+  const catedraName = catedraData?.name || "";
   const colors = yearColors[year] || yearColors["1"];
+
+  // Cargar libros disponibles
+  useEffect(() => {
+    if (year && materiaKey) {
+      fetch(`/api/material-info?year=${year}&materia=${materiaKey}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.libros) {
+            setLoadedLibros(data.libros);
+            setActiveLibros(data.libros.map(l => l.name));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [year, materiaKey]);
 
   useEffect(() => {
     if (materia) {
       setMessages([{
         role: "assistant",
-        content: `¡Hola! 👋 Soy tu tutor de **${materia.name}** para ${yearData.name}.\n\n${materia.libros.length > 0 ? `Tengo cargada la bibliografía de: ${materia.libros.map((l) => l.split(" - ")[0]).join(", ")}.` : "Todavía no hay bibliografía cargada para esta materia."}\n\n¿Sobre qué tema querés estudiar?`,
+        content: `¡Hola! 👋 Soy tu tutor de **${materia.name}**${catedraName && catedraName !== "Cátedra Única" ? ` (${catedraName})` : ""} para ${yearData.name}.\n\n¿Sobre qué tema querés estudiar?`,
         usedFragments: [],
       }]);
     }
-  }, [year, materiaKey]);
+  }, [year, materiaKey, catedraNum]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -85,15 +99,25 @@ function ChatContent() {
     return () => clearInterval(interval);
   }, [isLoading]);
 
+  const toggleLibro = (libroName) => {
+    setActiveLibros(prev => {
+      if (prev.includes(libroName)) {
+        if (prev.length === 1) return prev; // No dejar sin libros
+        return prev.filter(l => l !== libroName);
+      }
+      return [...prev, libroName];
+    });
+  };
+
   const openPage = useCallback((libro, page, fragmentText) => {
-    const libroCompleto = materia.libros.find(l =>
+    const libroCompleto = loadedLibros.map(l => l.name).find(l =>
       l.toLowerCase().includes(libro.toLowerCase().split("&")[0].trim().split(" ")[0])
     ) || libro;
     const params = new URLSearchParams({
       year, materia: materiaKey, libro: libroCompleto, page: page.toString(), mode: "pdf",
     });
     setPageModal({ libro: libroCompleto, page, pdfUrl: `/api/page?${params}`, fragmentText: fragmentText || "" });
-  }, [year, materiaKey, materia]);
+  }, [year, materiaKey, loadedLibros]);
 
   if (!year || !materiaKey || !materia) {
     return (
@@ -122,6 +146,7 @@ function ChatContent() {
         body: JSON.stringify({
           message: userMessage, year: parseInt(year), materia: materiaKey,
           history: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
+          activeLibros: activeLibros,
         }),
       });
       if (!response.ok) throw new Error("Error");
@@ -197,15 +222,44 @@ function ChatContent() {
             }}>{year}°</div>
             <span style={{ fontSize: "14px", color: "#a1a1aa", fontWeight: 500 }}>
               {materia.icon} {materia.name}
+              {catedraName && catedraName !== "Cátedra Única" && (
+                <span style={{ color: "#52525b", fontSize: "12px", marginLeft: "6px" }}>· {catedraName}</span>
+              )}
             </span>
           </div>
         </div>
-        {materia.libros.length > 0 && (
-          <div style={{ fontSize: "11px", color: "#3f3f46" }}>
-            {materia.libros.map(l => l.split(" - ")[0]).join(" · ")}
-          </div>
-        )}
       </header>
+
+      {/* Book chips */}
+      {loadedLibros.length > 0 && (
+        <div style={{
+          padding: "8px 20px", borderBottom: "1px solid rgba(255,255,255,0.04)",
+          display: "flex", alignItems: "center", gap: "6px", flexShrink: 0, flexWrap: "wrap",
+        }}>
+          <span style={{ fontSize: "11px", color: "#3f3f46", marginRight: "4px" }}>📚</span>
+          {loadedLibros.map((libro) => {
+            const isActive = activeLibros.includes(libro.name);
+            const shortName = libro.name.split(" - ")[0].split("&")[0].trim();
+            return (
+              <button
+                key={libro.name}
+                onClick={() => toggleLibro(libro.name)}
+                title={`${libro.name} · ${libro.pages} págs · ${isActive ? "Click para desactivar" : "Click para activar"}`}
+                style={{
+                  padding: "3px 10px", borderRadius: "100px", fontSize: "11px", fontWeight: 500,
+                  border: "1px solid", cursor: "pointer", transition: "all 0.2s",
+                  background: isActive ? "rgba(255,255,255,0.06)" : "transparent",
+                  borderColor: isActive ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)",
+                  color: isActive ? "#a1a1aa" : "#3f3f46",
+                  textDecoration: isActive ? "none" : "line-through",
+                }}
+              >
+                {shortName}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 0" }}>
@@ -240,7 +294,6 @@ function ChatContent() {
             </div>
           ))}
 
-          {/* Loading with fun fact */}
           {isLoading && (
             <div style={{ display: "flex", alignItems: "flex-start", marginBottom: "16px" }}>
               <div style={{
@@ -279,38 +332,24 @@ function ChatContent() {
             display: "flex", alignItems: "flex-end", gap: "10px",
             background: "#18181b", border: "1px solid rgba(255,255,255,0.08)",
             borderRadius: "14px", padding: "6px 6px 6px 18px",
-            transition: "border-color 0.2s",
-          }}
-            onFocus={(e) => e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"}
-            onBlur={(e) => e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"}
-          >
+          }}>
             <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={`Preguntá sobre ${materia.name}...`}
-              rows={1}
+              ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
+              placeholder={`Preguntá sobre ${materia.name}...`} rows={1}
               style={{
                 flex: 1, background: "transparent", color: "#e4e4e7", fontSize: "14px",
                 resize: "none", outline: "none", padding: "8px 0", maxHeight: "120px",
                 border: "none", caretColor: "#e4e4e7", fontFamily: "'DM Sans', sans-serif", lineHeight: "1.5",
               }}
-              onInput={(e) => {
-                e.target.style.height = "auto";
-                e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
-              }}
+              onInput={(e) => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px"; }}
             />
-            <button
-              onClick={sendMessage}
-              disabled={!input.trim() || isLoading}
+            <button onClick={sendMessage} disabled={!input.trim() || isLoading}
               style={{
                 width: "36px", height: "36px", borderRadius: "10px",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontSize: "16px", flexShrink: 0, border: "none", cursor: input.trim() && !isLoading ? "pointer" : "default",
                 background: input.trim() && !isLoading ? colors.gradient : "rgba(255,255,255,0.04)",
-                color: input.trim() && !isLoading ? "white" : "#3f3f46",
-                transition: "all 0.2s",
+                color: input.trim() && !isLoading ? "white" : "#3f3f46", transition: "all 0.2s",
               }}
             >↑</button>
           </div>
@@ -320,7 +359,7 @@ function ChatContent() {
         </div>
       </div>
 
-      {/* Modal PDF + panel lateral */}
+      {/* Modal PDF */}
       {pageModal && (
         <div
           style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.92)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
@@ -339,9 +378,7 @@ function ChatContent() {
                 </div>
               </div>
               <button onClick={() => setPageModal(null)}
-                style={{ color: "#52525b", fontSize: "18px", background: "rgba(255,255,255,0.04)", border: "none", cursor: "pointer", padding: "6px 10px", borderRadius: "8px", transition: "all 0.2s" }}
-                onMouseOver={(e) => { e.target.style.color = "#e4e4e7"; e.target.style.background = "rgba(255,255,255,0.08)"; }}
-                onMouseOut={(e) => { e.target.style.color = "#52525b"; e.target.style.background = "rgba(255,255,255,0.04)"; }}
+                style={{ color: "#52525b", fontSize: "18px", background: "rgba(255,255,255,0.04)", border: "none", cursor: "pointer", padding: "6px 10px", borderRadius: "8px" }}
               >✕</button>
             </div>
 
@@ -358,37 +395,25 @@ function ChatContent() {
                       <div style={{ width: "10px", height: "10px", backgroundColor: "rgba(250,204,21,0.5)", borderRadius: "3px" }} />
                       <span style={{ color: "#facc15", fontSize: "12px", fontWeight: 600 }}>Información utilizada</span>
                     </div>
-                    <p style={{ color: "#52525b", fontSize: "11px", lineHeight: "1.4", margin: 0 }}>
-                      Texto que el tutor usó de esta página
-                    </p>
+                    <p style={{ color: "#52525b", fontSize: "11px", lineHeight: "1.4", margin: 0 }}>Texto que el tutor usó de esta página</p>
                   </div>
-
                   <div style={{ padding: "10px 12px", overflow: "auto", flex: 1 }}>
                     {getRelevantSentences(pageModal.fragmentText).map((sentence, idx) => (
                       <div key={idx} style={{
                         padding: "10px 12px", marginBottom: "6px",
-                        backgroundColor: "rgba(250,204,21,0.05)",
-                        borderLeft: "2px solid rgba(250,204,21,0.4)",
-                        borderRadius: "0 8px 8px 0",
-                        color: "#d4d4d8", fontSize: "12px", lineHeight: "1.6",
+                        backgroundColor: "rgba(250,204,21,0.05)", borderLeft: "2px solid rgba(250,204,21,0.4)",
+                        borderRadius: "0 8px 8px 0", color: "#d4d4d8", fontSize: "12px", lineHeight: "1.6",
                         userSelect: "text", cursor: "text",
-                      }}>
-                        {sentence}
-                      </div>
+                      }}>{sentence}</div>
                     ))}
                   </div>
-
                   <div style={{ padding: "10px 12px", borderTop: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
-                    <button onClick={() => {
-                      navigator.clipboard.writeText(getRelevantSentences(pageModal.fragmentText).join("\n\n"));
-                    }}
+                    <button onClick={() => navigator.clipboard.writeText(getRelevantSentences(pageModal.fragmentText).join("\n\n"))}
                       style={{
                         width: "100%", padding: "8px", borderRadius: "8px", fontSize: "12px",
                         cursor: "pointer", border: "1px solid rgba(255,255,255,0.08)",
-                        backgroundColor: "rgba(255,255,255,0.03)", color: "#a1a1aa", transition: "all 0.2s",
+                        backgroundColor: "rgba(255,255,255,0.03)", color: "#a1a1aa",
                       }}
-                      onMouseOver={(e) => { e.target.style.background = "rgba(255,255,255,0.06)"; e.target.style.color = "#e4e4e7"; }}
-                      onMouseOut={(e) => { e.target.style.background = "rgba(255,255,255,0.03)"; e.target.style.color = "#a1a1aa"; }}
                     >📋 Copiar texto</button>
                   </div>
                 </div>

@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CURRICULUM } from "@/lib/curriculum";
+import { CURRICULUM, hasMultipleCatedras, getCatedras } from "@/lib/curriculum";
 import { useAuth } from "@/lib/useAuth";
 
 const yearColors = {
@@ -14,8 +14,15 @@ export default function Home() {
   const router = useRouter();
   const { loading, logout } = useAuth();
   const [activeYear, setActiveYear] = useState(null);
+  const [hoveredMateria, setHoveredMateria] = useState(null);
 
   const years = Object.entries(CURRICULUM);
+
+  const handleMateriaClick = (year, materiaKey) => {
+    if (!hasMultipleCatedras(year, materiaKey)) {
+      router.push(`/chat?year=${year}&materia=${materiaKey}&catedra=1`);
+    }
+  };
 
   if (loading) {
     return (
@@ -34,7 +41,6 @@ export default function Home() {
         pointerEvents: "none",
       }} />
 
-      {/* Header */}
       <header style={{
         padding: "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between",
         position: "relative", zIndex: 10,
@@ -59,7 +65,6 @@ export default function Home() {
         >Salir</button>
       </header>
 
-      {/* Main */}
       <main style={{ maxWidth: "720px", margin: "0 auto", padding: "80px 24px 40px", position: "relative", zIndex: 10 }}>
         <div style={{ textAlign: "center", marginBottom: "56px" }}>
           <h1 style={{
@@ -73,7 +78,6 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Year cards */}
         <div style={{ display: "flex", gap: "14px", justifyContent: "center" }}>
           {years.map(([num, data]) => {
             const colors = yearColors[num];
@@ -83,7 +87,7 @@ export default function Home() {
               <div key={num}
                 style={{ flex: 1, maxWidth: "220px", position: "relative", zIndex: isActive ? 100 : 1 }}
                 onMouseEnter={() => setActiveYear(num)}
-                onMouseLeave={() => setActiveYear(null)}
+                onMouseLeave={() => { setActiveYear(null); setHoveredMateria(null); }}
               >
                 <div style={{
                   padding: "32px 20px", borderRadius: "16px",
@@ -110,7 +114,7 @@ export default function Home() {
                 {isActive && (
                   <div style={{
                     position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)",
-                    width: "280px", marginTop: "8px",
+                    width: "280px", marginTop: "0px", paddingTop: "8px",
                     background: "#18181b", border: "1px solid rgba(255,255,255,0.1)",
                     borderRadius: "14px", padding: "6px",
                     boxShadow: `0 20px 50px rgba(0,0,0,0.6), 0 0 30px ${colors.glow}`,
@@ -123,29 +127,75 @@ export default function Home() {
                       borderLeft: "1px solid rgba(255,255,255,0.1)",
                     }} />
 
-                    {Object.entries(data.materias).map(([key, matData]) => (
-                      <button key={key} onClick={() => router.push(`/chat?year=${num}&materia=${key}`)}
-                        style={{
-                          width: "100%", padding: "12px 14px", borderRadius: "10px",
-                          background: "transparent", border: "none",
-                          cursor: "pointer", transition: "all 0.15s ease",
-                          display: "flex", alignItems: "center", gap: "10px", textAlign: "left",
-                        }}
-                        onMouseOver={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
-                        onMouseOut={(e) => e.currentTarget.style.background = "transparent"}
-                      >
-                        <div style={{
-                          width: "34px", height: "34px", borderRadius: "8px",
-                          background: matData.color || "rgba(255,255,255,0.04)",
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          fontSize: "16px", flexShrink: 0,
-                        }}>{matData.icon}</div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: "13px", fontWeight: 600, color: "#e4e4e7" }}>{matData.name}</div>
+                    {Object.entries(data.materias).map(([key, matData]) => {
+                      const multipleCatedras = Object.keys(matData.catedras).length > 1;
+                      const isHovered = hoveredMateria === key;
+
+                      return (
+                        <div key={key}
+                          onMouseEnter={() => setHoveredMateria(key)}
+                          onMouseLeave={() => setHoveredMateria(null)}
+                        >
+                          <button
+                            onClick={() => handleMateriaClick(num, key)}
+                            style={{
+                              width: "100%", padding: "12px 14px", borderRadius: "10px",
+                              background: isHovered ? "rgba(255,255,255,0.06)" : "transparent",
+                              border: "none",
+                              cursor: multipleCatedras ? "default" : "pointer",
+                              transition: "all 0.15s ease",
+                              display: "flex", alignItems: "center", gap: "10px", textAlign: "left",
+                            }}
+                          >
+                            <div style={{
+                              width: "34px", height: "34px", borderRadius: "8px",
+                              background: matData.color || "rgba(255,255,255,0.04)",
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: "16px", flexShrink: 0,
+                            }}>{matData.icon}</div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: "13px", fontWeight: 600, color: "#e4e4e7" }}>{matData.name}</div>
+                              {multipleCatedras && (
+                                <div style={{ fontSize: "11px", color: "#52525b" }}>{Object.keys(matData.catedras).length} cátedras</div>
+                              )}
+                            </div>
+                            <div style={{ color: "#3f3f46", fontSize: "14px" }}>
+                              {multipleCatedras ? "▸" : "→"}
+                            </div>
+                          </button>
+
+                          {/* Cátedras expandidas */}
+                          {multipleCatedras && isHovered && (
+                            <div style={{ paddingLeft: "16px", paddingBottom: "4px" }}>
+                              {Object.entries(matData.catedras).map(([catNum, catData]) => (
+                                <button
+                                  key={catNum}
+                                  onClick={() => router.push(`/chat?year=${num}&materia=${key}&catedra=${catNum}`)}
+                                  style={{
+                                    width: "100%", padding: "10px 14px", borderRadius: "8px",
+                                    background: "transparent", border: "none",
+                                    cursor: "pointer", transition: "all 0.15s ease",
+                                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                                    textAlign: "left",
+                                  }}
+                                  onMouseOver={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.05)"}
+                                  onMouseOut={(e) => e.currentTarget.style.background = "transparent"}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                    <div style={{
+                                      width: "6px", height: "6px", borderRadius: "50%",
+                                      background: "rgba(255,255,255,0.2)",
+                                    }} />
+                                    <span style={{ fontSize: "13px", color: "#a1a1aa" }}>{catData.name}</span>
+                                  </div>
+                                  <span style={{ color: "#3f3f46", fontSize: "12px" }}>→</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                        <div style={{ color: "#3f3f46", fontSize: "14px" }}>→</div>
-                      </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

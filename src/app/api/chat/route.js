@@ -1,12 +1,11 @@
 // ============================================================
 // API ROUTE - /api/chat
-// BÚSQUEDA HÍBRIDA: combina keywords + semántica
-// Fragmentos que aparecen en ambas tienen prioridad
+// BÚSQUEDA HÍBRIDA con filtro por libros activos
 // ============================================================
 
 import { NextResponse } from "next/server";
 import { buildSystemPrompt, buildQueryPrompt } from "@/lib/systemPrompt";
-import { getMateria, CURRICULUM } from "@/lib/curriculum";
+import { getMateria, CURRICULUM, getAllLibros } from "@/lib/curriculum";
 import { searchMaterial } from "@/lib/materialStore";
 import { semanticSearch, hasEmbeddings } from "@/lib/embeddings";
 import fs from "fs";
@@ -14,7 +13,7 @@ import path from "path";
 
 export async function POST(request) {
   try {
-    const { message, year, materia: materiaKey, history } = await request.json();
+    const { message, year, materia: materiaKey, history, activeLibros } = await request.json();
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
@@ -28,9 +27,6 @@ export async function POST(request) {
 
     const yearData = CURRICULUM[year];
 
-    // ============================================================
-    // BÚSQUEDA HÍBRIDA
-    // ============================================================
     const materialesPath = path.join(process.cwd(), "data", "materiales", `${year}_${materiaKey}.json`);
     let allFragments = [];
     if (fs.existsSync(materialesPath)) {
@@ -38,18 +34,12 @@ export async function POST(request) {
       allFragments = JSON.parse(raw).fragments || [];
     }
 
-    // 1. Búsqueda por palabras clave (encuentra coincidencias exactas)
-    const keywordResults = searchMaterial(year, materiaKey, message);
-    
-    // 2. Búsqueda semántica (encuentra temas relacionados por significado)
-    let semanticResults = [];
-    if (hasEmbeddings(year, materiaKey)) {
-      console.log("Búsqueda híbrida: keywords + semántica");
-      semanticResults = await semanticSearch(year, materiaKey, message, 15);
+    // Filtrar fragmentos por libros activos si se especificaron
+    if (activeLibros && activeLibros.length > 0) {
+      allFragments = allFragments.filter(f => activeLibros.includes(f.libro));
     }
 
-    // 3. Búsqueda directa por frase exacta en el texto
-    // Limpiar query: sacar signos de pregunta, palabras comunes
+    // Limpiar query
     const stopWords = ["que", "es", "el", "la", "los", "las", "un", "una", "de", "del", "en", "por", "para", "como", "donde", "cual", "cuales", "me", "te", "se", "con", "sin", "sobre", "entre", "hacia", "desde", "hay", "son", "tiene", "puede", "hacer", "ser", "estar", "tener", "haber", "esto", "esta", "estos", "estas", "ese", "esa", "esos", "esas", "aquel", "aquella", "describí", "describi", "describime", "explicame", "explica", "contame", "decime", "qué", "cómo", "cuál", "dónde", "quiero", "saber", "conocer"];
     
     const queryWords = message
@@ -61,14 +51,15 @@ export async function POST(request) {
       .filter(w => w.length > 2 && !stopWords.includes(w));
     
     const queryPhrase = queryWords.join(" ");
-    console.log("Query original:", message);
+    console.log("Query:", message);
     console.log("Palabras clave:", queryWords);
+    if (activeLibros) console.log("Libros activos:", activeLibros);
+
+    // Búsqueda exacta
     const exactMatches = allFragments
       .filter(f => {
         const textLower = f.text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
-        // Buscar si TODAS las palabras clave aparecen en el fragmento
         const allWordsMatch = queryWords.every(w => textLower.includes(w));
-        // Bonus: buscar la frase completa (palabras juntas)
         const phraseMatch = textLower.includes(queryPhrase);
         return allWordsMatch || phraseMatch;
       })
@@ -78,8 +69,7 @@ export async function POST(request) {
         return { id: f.id, page: f.page, libro: f.libro, score: phraseMatch ? 100 : 70 };
       });
 
-    // 4. Buscar fragmentos que tengan la frase en un título o encabezado
-    // (líneas en mayúsculas o que empiezan con el tema)
+    // Búsqueda en títulos
     const titleMatches = allFragments
       .filter(f => {
         const lines = f.text.split("\n").slice(0, 5);
@@ -90,45 +80,58 @@ export async function POST(request) {
       })
       .map(f => ({ id: f.id, page: f.page, libro: f.libro, score: 80 }));
 
-    // ============================================================
-    // COMBINAR Y RANKEAR
-    // ============================================================
+    // Keywords
+    const keywordResults = searchMaterial(year, materiaKey, message);
+    // Filtrar keywords por libros activos
+    const filteredKeywords = activeLibros && activeLibros.length > 0
+      ? keywordResults.filter(f => activeLibros.includes(f.libro))
+      : keywordResults;
+
+    // Semántica
+    let semanticResults = [];
+    if (hasEmbeddings(year, materiaKey)) {
+      console.log("Búsqueda híbrida: keywords + semántica");
+      semanticResults = await semanticSearch(year, materiaKey, message, 15);
+      // Filtrar semántica por libros activos
+      if (activeLibros && activeLibros.length > 0) {
+        semanticResults = semanticResults.filter(r => {
+          const frag = allFragments.find(f => f.id === r.id);
+          return frag && activeLibros.includes(frag.libro);
+        });
+      }
+    }
+
+    // Combinar y rankear
     const scoreMap = new Map();
 
-    // Coincidencia exacta de frase: máxima prioridad
     exactMatches.forEach(r => {
       const current = scoreMap.get(r.id) || { id: r.id, page: r.page, libro: r.libro, score: 0 };
-      current.score += 100;
+      current.score += r.score;
       scoreMap.set(r.id, current);
     });
 
-    // Coincidencia en título: alta prioridad
     titleMatches.forEach(r => {
       const current = scoreMap.get(r.id) || { id: r.id, page: r.page, libro: r.libro, score: 0 };
       current.score += 80;
       scoreMap.set(r.id, current);
     });
 
-    // Keywords: buena prioridad
-    keywordResults.forEach((r, i) => {
+    filteredKeywords.forEach((r, i) => {
       const current = scoreMap.get(r.id) || { id: r.id, page: r.page, libro: r.libro, score: 0 };
-      current.score += 50 - (i * 5); // Primeros resultados valen más
+      current.score += 50 - (i * 5);
       scoreMap.set(r.id, current);
     });
 
-    // Semántica: prioridad complementaria
-    semanticResults.forEach((r, i) => {
+    semanticResults.forEach((r) => {
       const current = scoreMap.get(r.id) || { id: r.id, page: r.page, libro: r.libro, score: 0 };
-      current.score += 30 * r.score; // Score semántico ponderado
+      current.score += 30 * r.score;
       scoreMap.set(r.id, current);
     });
 
-    // Ordenar por score combinado y tomar los mejores 10
     const rankedIds = Array.from(scoreMap.values())
       .sort((a, b) => b.score - a.score)
       .slice(0, 10);
 
-    // Cargar texto completo de los fragmentos seleccionados
     const relevantFragments = rankedIds
       .map(r => {
         const frag = allFragments.find(f => f.id === r.id);
@@ -137,7 +140,7 @@ export async function POST(request) {
       })
       .filter(Boolean);
 
-    console.log("Fragmentos encontrados:", relevantFragments.map(f => `pag ${f.page} (score: ${f.combinedScore.toFixed(1)})`).join(", "));
+    console.log("Fragmentos:", relevantFragments.map(f => `pag ${f.page} (${f.combinedScore.toFixed(1)})`).join(", "));
 
     // Construir contexto
     let materialContext = "";
@@ -150,10 +153,13 @@ export async function POST(request) {
         .join("\n\n");
     }
 
+    // Usar todos los libros de todas las cátedras para el prompt
+    const allLibros = getAllLibros(year, materiaKey);
+
     const systemPrompt = buildSystemPrompt({
       materia: materia.name,
       año: yearData.name,
-      libros: materia.libros,
+      libros: allLibros.length > 0 ? allLibros : (activeLibros || []),
       material: materialContext,
     });
 
