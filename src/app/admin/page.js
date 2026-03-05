@@ -2,14 +2,17 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { CURRICULUM } from "@/lib/curriculum";
+import { useAuth } from "@/lib/useAuth";
 
 export default function AdminPage() {
   const router = useRouter();
+  const { isAdmin, loading } = useAuth("admin");
   const fileInputRef = useRef(null);
 
   const [selectedYear, setSelectedYear] = useState("1");
   const [selectedMateria, setSelectedMateria] = useState("");
   const [selectedLibro, setSelectedLibro] = useState("");
+  const [customLibro, setCustomLibro] = useState("");
   const [pageOffset, setPageOffset] = useState(0);
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -30,50 +33,39 @@ export default function AdminPage() {
     setSelectedYear(year);
     setSelectedMateria("");
     setSelectedLibro("");
+    setCustomLibro("");
   };
 
   const handleMateriaChange = (materia) => {
     setSelectedMateria(materia);
     setSelectedLibro("");
+    setCustomLibro("");
   };
 
   useEffect(() => {
     let interval;
     if (uploading) {
       setProgress(0);
-      setProgressStage("Subiendo archivo...");
-
       let currentProgress = 0;
       interval = setInterval(() => {
         currentProgress += Math.random() * 3;
-
-        if (currentProgress < 30) {
-          setProgressStage("📤 Subiendo archivo...");
-        } else if (currentProgress < 60) {
-          setProgressStage("📖 Extrayendo texto página por página...");
-        } else if (currentProgress < 85) {
-          setProgressStage("✂️ Dividiendo en fragmentos...");
-        } else {
-          setProgressStage("💾 Guardando material...");
-        }
-
-        if (currentProgress >= 90) {
-          currentProgress = 90;
-          clearInterval(interval);
-        }
-
+        if (currentProgress < 30) setProgressStage("Subiendo archivo...");
+        else if (currentProgress < 60) setProgressStage("Extrayendo texto página por página...");
+        else if (currentProgress < 85) setProgressStage("Generando páginas individuales...");
+        else setProgressStage("Guardando material...");
+        if (currentProgress >= 90) { currentProgress = 90; clearInterval(interval); }
         setProgress(Math.min(currentProgress, 90));
       }, 500);
     } else {
       setProgress(0);
       setProgressStage("");
     }
-
     return () => clearInterval(interval);
   }, [uploading]);
 
   const handleUpload = async () => {
-    if (!file || !selectedYear || !selectedMateria || !selectedLibro) {
+    const libroFinal = selectedLibro || customLibro.trim();
+    if (!file || !selectedYear || !selectedMateria || !libroFinal) {
       setMessage({ type: "error", text: "Completá todos los campos antes de subir." });
       return;
     }
@@ -86,7 +78,7 @@ export default function AdminPage() {
       formData.append("file", file);
       formData.append("year", selectedYear);
       formData.append("materia", selectedMateria);
-      formData.append("libro", selectedLibro);
+      formData.append("libro", libroFinal);
       formData.append("pageOffset", pageOffset.toString());
 
       const response = await fetch("/api/upload", {
@@ -95,310 +87,256 @@ export default function AdminPage() {
       });
 
       const data = await response.json();
-
       setProgress(100);
-      setProgressStage("✅ ¡Completado!");
-
+      setProgressStage("¡Completado!");
       await new Promise((resolve) => setTimeout(resolve, 800));
 
       if (response.ok) {
-        setMessage({
-          type: "success",
-          text: data.message,
-        });
-        setUploadHistory((prev) => [
-          {
-            fileName: file.name,
-            libro: selectedLibro,
-            materia: CURRICULUM[selectedYear].materias[selectedMateria].name,
-            fragments: data.fragmentsAdded,
-            totalPages: data.totalPages,
-            offset: pageOffset,
-            date: new Date().toLocaleString("es-AR"),
-          },
-          ...prev,
-        ]);
+        setMessage({ type: "success", text: data.message });
+        setUploadHistory((prev) => [{
+          fileName: file.name, libro: libroFinal,
+          materia: CURRICULUM[selectedYear].materias[selectedMateria].name,
+          fragments: data.fragmentsAdded, totalPages: data.totalPages,
+          offset: pageOffset, date: new Date().toLocaleString("es-AR"),
+        }, ...prev]);
         setFile(null);
+        setCustomLibro("");
         if (fileInputRef.current) fileInputRef.current.value = "";
       } else {
         setMessage({ type: "error", text: data.error });
       }
     } catch (error) {
-      setMessage({ type: "error", text: "Error de conexión. Verificá que el servidor esté corriendo." });
+      setMessage({ type: "error", text: "Error de conexión." });
     } finally {
       setUploading(false);
     }
   };
 
+  const yearColors = {
+    "1": { gradient: "linear-gradient(135deg, #3b82f6, #6366f1)", accent: "#3b82f6" },
+    "2": { gradient: "linear-gradient(135deg, #10b981, #06b6d4)", accent: "#10b981" },
+    "3": { gradient: "linear-gradient(135deg, #f59e0b, #ef4444)", accent: "#f59e0b" },
+  };
+  const colors = yearColors[selectedYear];
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#0a0a0c", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ color: "#52525b" }}>Verificando permisos...</div>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#0a0a0c", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: "48px", marginBottom: "16px" }}>🔒</div>
+          <p style={{ color: "#71717a", marginBottom: "16px" }}>Necesitás permisos de administrador para acceder.</p>
+          <button onClick={() => router.push("/")}
+            style={{ padding: "10px 20px", background: "linear-gradient(135deg, #3b82f6, #8b5cf6)", borderRadius: "10px", border: "none", color: "white", cursor: "pointer", fontWeight: 600 }}>
+            Volver al inicio
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
-      {/* Header */}
-      <header className="border-b border-slate-800/50 px-6 h-16 flex items-center justify-between bg-slate-950/80 backdrop-blur-xl">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-xl font-bold shadow-lg shadow-violet-500/20">
-            ⚙
-          </div>
+    <div style={{ minHeight: "100vh", background: "#0a0a0c" }}>
+      <header style={{
+        padding: "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between",
+        borderBottom: "1px solid rgba(255,255,255,0.06)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div style={{
+            width: "32px", height: "32px", borderRadius: "8px",
+            background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "15px", fontWeight: 700, color: "white",
+          }}>M</div>
           <div>
-            <div className="text-lg font-bold">Panel de Administrador</div>
-            <div className="text-[11px] text-violet-400 tracking-widest uppercase">
-              Carga de material
-            </div>
+            <span style={{ fontSize: "15px", fontWeight: 600, color: "#e4e4e7" }}>MedUBA Study</span>
+            <span style={{ fontSize: "12px", color: "#52525b", marginLeft: "8px" }}>/ Admin</span>
           </div>
         </div>
-        <button
-          onClick={() => router.push("/")}
-          className="text-sm text-slate-400 hover:text-white transition-colors px-4 py-2 rounded-lg hover:bg-white/5"
-        >
-          ← Volver a la app
-        </button>
+        <button onClick={() => router.push("/")}
+          style={{
+            padding: "7px 14px", borderRadius: "8px", fontSize: "13px",
+            background: "transparent", border: "1px solid rgba(255,255,255,0.08)",
+            color: "#71717a", cursor: "pointer", transition: "all 0.2s",
+          }}
+          onMouseOver={(e) => { e.target.style.color = "#e4e4e7"; e.target.style.borderColor = "rgba(255,255,255,0.15)"; }}
+          onMouseOut={(e) => { e.target.style.color = "#71717a"; e.target.style.borderColor = "rgba(255,255,255,0.08)"; }}
+        >← Volver</button>
       </header>
 
-      <main className="max-w-3xl mx-auto p-8">
-        {/* Instrucciones */}
-        <div className="mb-8 p-5 bg-violet-500/[0.06] border border-violet-500/15 rounded-xl">
-          <h2 className="text-violet-300 font-semibold mb-2">📋 ¿Cómo cargar material?</h2>
-          <ol className="text-slate-400 text-sm space-y-1 list-decimal list-inside leading-relaxed">
-            <li>Seleccioná el <strong className="text-slate-300">año</strong> y la <strong className="text-slate-300">materia</strong></li>
-            <li>Elegí a qué <strong className="text-slate-300">libro</strong> pertenece el archivo</li>
-            <li>Configurá el <strong className="text-slate-300">offset de páginas</strong> si es necesario</li>
-            <li>Subí el archivo (PDF, Word o texto plano)</li>
-            <li>¡Listo! Los alumnos ya pueden preguntar sobre ese material</li>
-          </ol>
+      <main style={{ maxWidth: "640px", margin: "0 auto", padding: "40px 24px" }}>
+        <div style={{ marginBottom: "32px" }}>
+          <h1 style={{ fontSize: "24px", fontWeight: 700, color: "#fafafa", letterSpacing: "-0.8px", marginBottom: "6px" }}>Carga de material</h1>
+          <p style={{ fontSize: "14px", color: "#52525b" }}>Subí PDFs de la bibliografía para que el tutor los use como fuente.</p>
         </div>
 
-        {/* Formulario */}
-        <div className="space-y-6">
-          {/* Año */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
           <div>
-            <label className="block text-sm text-slate-400 mb-2 font-medium">
-              1. Seleccioná el año
-            </label>
-            <div className="flex gap-3">
+            <label style={{ display: "block", fontSize: "13px", color: "#71717a", marginBottom: "10px", fontWeight: 500 }}>Año</label>
+            <div style={{ display: "flex", gap: "8px" }}>
               {Object.entries(CURRICULUM).map(([num, data]) => (
-                <button
-                  key={num}
-                  onClick={() => handleYearChange(num)}
-                  className={`px-5 py-3 rounded-xl text-sm font-medium transition-all
-                    ${selectedYear === num
-                      ? "bg-violet-500/20 border border-violet-500/40 text-violet-300"
-                      : "bg-white/[0.03] border border-white/[0.06] text-slate-400 hover:bg-white/[0.06]"
-                    }`}
-                >
-                  {data.name}
-                </button>
+                <button key={num} onClick={() => handleYearChange(num)}
+                  style={{
+                    flex: 1, padding: "12px", borderRadius: "10px", fontSize: "14px", fontWeight: 600,
+                    cursor: "pointer", transition: "all 0.2s", border: "1px solid",
+                    background: selectedYear === num ? "rgba(255,255,255,0.06)" : "transparent",
+                    borderColor: selectedYear === num ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.06)",
+                    color: selectedYear === num ? "#e4e4e7" : "#52525b",
+                  }}>{data.name}</button>
               ))}
             </div>
           </div>
 
-          {/* Materia */}
           <div>
-            <label className="block text-sm text-slate-400 mb-2 font-medium">
-              2. Seleccioná la materia
-            </label>
-            <div className="grid grid-cols-2 gap-3">
+            <label style={{ display: "block", fontSize: "13px", color: "#71717a", marginBottom: "10px", fontWeight: 500 }}>Materia</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
               {materias.map(([key, data]) => (
-                <button
-                  key={key}
-                  onClick={() => handleMateriaChange(key)}
-                  className={`px-4 py-3 rounded-xl text-sm text-left transition-all flex items-center gap-2
-                    ${selectedMateria === key
-                      ? "bg-violet-500/20 border border-violet-500/40 text-violet-300"
-                      : "bg-white/[0.03] border border-white/[0.06] text-slate-400 hover:bg-white/[0.06]"
-                    }`}
-                >
-                  <span className="text-lg">{data.icon}</span>
-                  {data.name}
+                <button key={key} onClick={() => handleMateriaChange(key)}
+                  style={{
+                    padding: "12px 14px", borderRadius: "10px", fontSize: "14px",
+                    cursor: "pointer", transition: "all 0.2s", border: "1px solid",
+                    display: "flex", alignItems: "center", gap: "10px", textAlign: "left",
+                    background: selectedMateria === key ? "rgba(255,255,255,0.06)" : "transparent",
+                    borderColor: selectedMateria === key ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.06)",
+                    color: selectedMateria === key ? "#e4e4e7" : "#71717a",
+                  }}>
+                  <span style={{ fontSize: "16px" }}>{data.icon}</span>{data.name}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Libro */}
           {selectedMateria && (
             <div>
-              <label className="block text-sm text-slate-400 mb-2 font-medium">
-                3. ¿De qué libro es el material?
-              </label>
-              <div className="space-y-2">
-                {libros.map((libro) => (
-                  <button
-                    key={libro}
-                    onClick={() => setSelectedLibro(libro)}
-                    className={`block w-full px-4 py-3 rounded-xl text-sm text-left transition-all
-                      ${selectedLibro === libro
-                        ? "bg-violet-500/20 border border-violet-500/40 text-violet-300"
-                        : "bg-white/[0.03] border border-white/[0.06] text-slate-400 hover:bg-white/[0.06]"
-                      }`}
-                  >
-                    📖 {libro}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Offset de páginas */}
-          {selectedLibro && (
-            <div>
-              <label className="block text-sm text-slate-400 mb-2 font-medium">
-                4. Offset de páginas (diferencia entre numeración del libro y del PDF)
-              </label>
-              <div className="p-4 bg-amber-500/[0.06] border border-amber-500/15 rounded-xl mb-3">
-                <p className="text-amber-300 text-sm leading-relaxed">
-                  <strong>¿Cómo calcularlo?</strong> Abrí el PDF y buscá una página que tenga número impreso (ej: "627" abajo). 
-                  Fijate qué número de página dice tu lector de PDF para esa misma página (ej: "607"). 
-                  El offset es: <strong>627 - 607 = 20</strong>. Poné <strong>20</strong> abajo.
-                </p>
-                <p className="text-amber-300/70 text-xs mt-2">
-                  Si la numeración del PDF coincide con la del libro, dejá 0.
-                </p>
-              </div>
-              <div className="flex items-center gap-3">
-                <input
-                  type="number"
-                  value={pageOffset}
-                  onChange={(e) => setPageOffset(parseInt(e.target.value) || 0)}
-                  className="w-32 px-4 py-3 rounded-xl text-sm text-white font-mono text-center"
+              <label style={{ display: "block", fontSize: "13px", color: "#71717a", marginBottom: "10px", fontWeight: 500 }}>Libro</label>
+              {libros.length > 0 && libros.map((libro) => (
+                <button key={libro} onClick={() => { setSelectedLibro(libro); setCustomLibro(""); }}
                   style={{
-                    backgroundColor: "#1e293b",
-                    border: "1px solid #334155",
-                    outline: "none",
-                  }}
-                  min="-100"
-                  max="100"
-                />
-                <span className="text-slate-500 text-sm">
-                  Página del libro = Página del PDF + {pageOffset}
-                </span>
+                    width: "100%", padding: "12px 14px", borderRadius: "10px", fontSize: "14px",
+                    cursor: "pointer", transition: "all 0.2s", border: "1px solid", textAlign: "left", marginBottom: "6px",
+                    background: selectedLibro === libro ? "rgba(255,255,255,0.06)" : "transparent",
+                    borderColor: selectedLibro === libro ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.06)",
+                    color: selectedLibro === libro ? "#e4e4e7" : "#71717a",
+                  }}>📖 {libro}</button>
+              ))}
+              <input type="text" value={customLibro}
+                onChange={(e) => { setCustomLibro(e.target.value); setSelectedLibro(""); }}
+                placeholder="Escribí el nombre del libro..."
+                style={{
+                  width: "100%", padding: "12px 14px", borderRadius: "10px", fontSize: "14px",
+                  background: "#18181b", border: "1px solid rgba(255,255,255,0.08)",
+                  color: "#e4e4e7", outline: "none", fontFamily: "'DM Sans', sans-serif",
+                }}
+              />
+            </div>
+          )}
+
+          {(selectedLibro || customLibro.trim()) && (
+            <div>
+              <label style={{ display: "block", fontSize: "13px", color: "#71717a", marginBottom: "10px", fontWeight: 500 }}>Offset de páginas</label>
+              <div style={{ padding: "14px 16px", borderRadius: "10px", background: "rgba(245,158,11,0.04)", border: "1px solid rgba(245,158,11,0.1)", marginBottom: "12px" }}>
+                <p style={{ fontSize: "13px", color: "#a1a1aa", lineHeight: "1.5", margin: 0 }}>
+                  <strong style={{ color: "#e4e4e7" }}>Página del libro - Página del PDF = offset</strong>. Si coinciden, dejá 0.
+                </p>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <input type="number" value={pageOffset} onChange={(e) => setPageOffset(parseInt(e.target.value) || 0)}
+                  style={{
+                    width: "120px", padding: "10px 14px", borderRadius: "10px", fontSize: "16px",
+                    background: "#18181b", border: "1px solid rgba(255,255,255,0.08)",
+                    color: "#e4e4e7", outline: "none", textAlign: "center", fontFamily: "'JetBrains Mono', monospace",
+                  }} min="-200" max="200" />
+                <span style={{ fontSize: "13px", color: "#52525b" }}>Pág. libro = Pág. PDF + ({pageOffset})</span>
               </div>
             </div>
           )}
 
-          {/* Upload de archivo */}
-          {selectedLibro && (
+          {(selectedLibro || customLibro.trim()) && (
             <div>
-              <label className="block text-sm text-slate-400 mb-2 font-medium">
-                5. Subí el archivo
-              </label>
-              <div
-                onClick={() => !uploading && fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-8 text-center transition-all
-                  ${uploading
-                    ? "border-violet-500/30 bg-violet-500/[0.03] cursor-wait"
-                    : "border-slate-700 hover:border-violet-500/40 cursor-pointer hover:bg-violet-500/[0.03]"
-                  }`}
+              <label style={{ display: "block", fontSize: "13px", color: "#71717a", marginBottom: "10px", fontWeight: 500 }}>Archivo</label>
+              <div onClick={() => !uploading && fileInputRef.current?.click()}
+                style={{
+                  padding: "32px", borderRadius: "12px", textAlign: "center",
+                  border: "2px dashed rgba(255,255,255,0.08)", cursor: uploading ? "wait" : "pointer", transition: "all 0.2s",
+                  background: file ? "rgba(255,255,255,0.02)" : "transparent",
+                }}
+                onMouseOver={(e) => { if (!uploading) e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"; }}
+                onMouseOut={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; }}
               >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf,.docx,.txt,.md"
-                  onChange={(e) => setFile(e.target.files[0])}
-                  className="hidden"
-                  disabled={uploading}
-                />
+                <input ref={fileInputRef} type="file" accept=".pdf,.docx,.txt,.md"
+                  onChange={(e) => setFile(e.target.files[0])} style={{ display: "none" }} disabled={uploading} />
                 {file ? (
                   <div>
-                    <div className="text-3xl mb-2">✅</div>
-                    <div className="text-white font-medium">{file.name}</div>
-                    <div className="text-slate-500 text-sm mt-1">
-                      {(file.size / 1024 / 1024).toFixed(2)} MB — {!uploading && "Click para cambiar"}
-                    </div>
+                    <div style={{ fontSize: "24px", marginBottom: "8px" }}>✅</div>
+                    <div style={{ fontSize: "14px", color: "#e4e4e7", fontWeight: 500 }}>{file.name}</div>
+                    <div style={{ fontSize: "12px", color: "#52525b", marginTop: "4px" }}>{(file.size / 1024 / 1024).toFixed(2)} MB</div>
                   </div>
                 ) : (
                   <div>
-                    <div className="text-3xl mb-2">📄</div>
-                    <div className="text-slate-300">Click para seleccionar archivo</div>
-                    <div className="text-slate-600 text-sm mt-1">
-                      PDF, Word (.docx), o texto (.txt, .md)
-                    </div>
+                    <div style={{ fontSize: "24px", marginBottom: "8px" }}>📄</div>
+                    <div style={{ fontSize: "14px", color: "#71717a" }}>Click para seleccionar</div>
+                    <div style={{ fontSize: "12px", color: "#3f3f46", marginTop: "4px" }}>PDF, Word o texto</div>
                   </div>
                 )}
               </div>
             </div>
           )}
 
-          {/* Barra de progreso */}
           {uploading && (
-            <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-slate-300">{progressStage}</span>
-                <span className="text-sm text-violet-400 font-mono">{Math.round(progress)}%</span>
+            <div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                <span style={{ fontSize: "13px", color: "#a1a1aa" }}>{progressStage}</span>
+                <span style={{ fontSize: "13px", color: colors.accent, fontFamily: "'JetBrains Mono', monospace" }}>{Math.round(progress)}%</span>
               </div>
-              <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-500 ease-out"
-                  style={{
-                    width: `${progress}%`,
-                    backgroundColor: progress >= 100 ? "#10b981" : "#8b5cf6",
-                  }}
-                />
+              <div style={{ width: "100%", height: "4px", background: "rgba(255,255,255,0.06)", borderRadius: "2px", overflow: "hidden" }}>
+                <div style={{ height: "100%", borderRadius: "2px", transition: "width 0.5s ease", width: `${progress}%`, background: progress >= 100 ? "#10b981" : colors.gradient }} />
               </div>
-              <p className="text-xs text-slate-600 text-center">
-                Los archivos grandes pueden tardar varios minutos. No cierres esta pestaña.
-              </p>
             </div>
           )}
 
-          {/* Botón de subir */}
-          {file && selectedLibro && !uploading && (
-            <button
-              onClick={handleUpload}
-              className="w-full py-4 rounded-xl text-base font-semibold transition-all bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:shadow-lg hover:shadow-violet-500/20 cursor-pointer"
-            >
-              🚀 Subir y procesar material
-            </button>
+          {file && (selectedLibro || customLibro.trim()) && !uploading && (
+            <button onClick={handleUpload}
+              style={{
+                width: "100%", padding: "14px", borderRadius: "12px", fontSize: "15px", fontWeight: 600,
+                border: "none", cursor: "pointer", color: "white", background: colors.gradient,
+              }}>Subir y procesar material</button>
           )}
 
-          {/* Mensaje de resultado */}
           {message && (
-            <div
-              className={`p-4 rounded-xl text-sm ${
-                message.type === "success"
-                  ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-300"
-                  : "bg-red-500/10 border border-red-500/20 text-red-300"
-              }`}
-            >
-              {message.type === "success" ? "✅" : "❌"} {message.text}
-            </div>
+            <div style={{
+              padding: "14px 16px", borderRadius: "10px", fontSize: "14px",
+              background: message.type === "success" ? "rgba(16,185,129,0.06)" : "rgba(239,68,68,0.06)",
+              border: `1px solid ${message.type === "success" ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.15)"}`,
+              color: message.type === "success" ? "#34d399" : "#f87171",
+            }}>{message.type === "success" ? "✅" : "❌"} {message.text}</div>
           )}
         </div>
 
-        {/* Historial de cargas */}
         {uploadHistory.length > 0 && (
-          <div className="mt-12">
-            <h3 className="text-sm text-slate-500 tracking-[2px] uppercase font-semibold mb-4">
-              Historial de cargas
-            </h3>
-            <div className="space-y-3">
-              {uploadHistory.map((item, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-4 p-4 bg-white/[0.02] border border-white/[0.05] rounded-xl"
-                >
-                  <span className="text-2xl">📕</span>
-                  <div className="flex-1">
-                    <div className="text-white text-sm font-medium">{item.fileName}</div>
-                    <div className="text-slate-500 text-xs">
-                      {item.libro} → {item.materia} · {item.fragments} fragmentos · {item.totalPages} páginas {item.offset !== 0 && `· Offset: +${item.offset}`}
-                    </div>
-                  </div>
-                  <div className="text-emerald-400 text-xs font-medium">✓ Cargado</div>
+          <div style={{ marginTop: "48px" }}>
+            <h3 style={{ fontSize: "12px", color: "#52525b", textTransform: "uppercase", letterSpacing: "2px", fontWeight: 600, marginBottom: "14px" }}>Historial</h3>
+            {uploadHistory.map((item, i) => (
+              <div key={i} style={{
+                display: "flex", alignItems: "center", gap: "12px", padding: "14px 16px", marginBottom: "8px",
+                borderRadius: "10px", background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
+              }}>
+                <span style={{ fontSize: "20px" }}>📕</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: "13px", color: "#e4e4e7", fontWeight: 500 }}>{item.fileName}</div>
+                  <div style={{ fontSize: "11px", color: "#52525b" }}>{item.libro} → {item.materia} · {item.fragments} fragmentos</div>
                 </div>
-              ))}
-            </div>
+                <span style={{ fontSize: "11px", color: "#34d399" }}>✓</span>
+              </div>
+            ))}
           </div>
         )}
-
-        {/* Tips */}
-        <div className="mt-12 p-5 bg-sky-500/[0.06] border border-sky-500/10 rounded-xl">
-          <h3 className="text-sky-300 font-semibold mb-2">💡 Tips</h3>
-          <ul className="text-slate-400 text-sm space-y-1 leading-relaxed">
-            <li>• El <strong className="text-slate-300">offset</strong> es clave para que las citas tengan la página correcta del libro</li>
-            <li>• Podés subir <strong className="text-slate-300">varios archivos</strong> del mismo libro</li>
-            <li>• Los <strong className="text-slate-300">PDFs con texto seleccionable</strong> funcionan mejor que los escaneados</li>
-            <li>• Cuanto más material cargues, mejores serán las respuestas del tutor</li>
-          </ul>
-        </div>
       </main>
     </div>
   );

@@ -1,170 +1,161 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { CURRICULUM, getYears, getMaterias } from "@/lib/curriculum";
+import { CURRICULUM } from "@/lib/curriculum";
+import { useAuth } from "@/lib/useAuth";
 
-export default function HomePage() {
+const yearColors = {
+  "1": { gradient: "linear-gradient(135deg, #3b82f6, #6366f1)", glow: "rgba(59,130,246,0.2)" },
+  "2": { gradient: "linear-gradient(135deg, #10b981, #06b6d4)", glow: "rgba(16,185,129,0.2)" },
+  "3": { gradient: "linear-gradient(135deg, #f59e0b, #ef4444)", glow: "rgba(245,158,11,0.2)" },
+};
+
+export default function Home() {
   const router = useRouter();
-  const [selectedYear, setSelectedYear] = useState(null);
-  const [hoveredYear, setHoveredYear] = useState(null);
-  const [hoveredMateria, setHoveredMateria] = useState(null);
+  const { loading, logout } = useAuth();
+  const [activeYear, setActiveYear] = useState(null);
 
-  const years = getYears();
+  const years = Object.entries(CURRICULUM);
 
-  const handleMateriaSelect = (materiaKey) => {
-    router.push(`/chat?year=${selectedYear}&materia=${materiaKey}`);
-  };
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#0a0a0c", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ color: "#52525b", fontSize: "14px" }}>Cargando...</div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div style={{ minHeight: "100vh", background: "#0a0a0c", position: "relative", overflow: "hidden" }}>
+      <div style={{
+        position: "fixed", top: "-200px", left: "50%", transform: "translateX(-50%)",
+        width: "800px", height: "600px",
+        background: "radial-gradient(ellipse, rgba(59,130,246,0.07) 0%, transparent 70%)",
+        pointerEvents: "none",
+      }} />
+
       {/* Header */}
-      <header className="border-b border-slate-800/50 px-6 h-16 flex items-center justify-between sticky top-0 z-50 bg-slate-950/80 backdrop-blur-xl">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-500 flex items-center justify-center text-xl font-bold shadow-lg shadow-sky-500/20">
-            M
-          </div>
-          <div>
-            <div className="text-lg font-bold tracking-wide">MedUBA Study</div>
-            <div className="text-[11px] text-sky-400 tracking-widest uppercase">
-              Facultad de Medicina
-            </div>
-          </div>
+      <header style={{
+        padding: "16px 28px", display: "flex", alignItems: "center", justifyContent: "space-between",
+        position: "relative", zIndex: 10,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div style={{
+            width: "32px", height: "32px", borderRadius: "8px",
+            background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: "15px", fontWeight: 700, color: "white",
+          }}>M</div>
+          <span style={{ fontSize: "15px", fontWeight: 600, color: "#e4e4e7", letterSpacing: "-0.3px" }}>MedUBA Study</span>
         </div>
-        {selectedYear && (
-          <button
-            onClick={() => setSelectedYear(null)}
-            className="text-sm text-slate-400 hover:text-white transition-colors px-4 py-2 rounded-lg hover:bg-white/5"
-          >
-            ← Volver
-          </button>
-        )}
+        <button onClick={logout}
+          style={{
+            padding: "7px 14px", borderRadius: "8px", fontSize: "13px",
+            background: "transparent", border: "1px solid rgba(255,255,255,0.08)",
+            color: "#71717a", cursor: "pointer", transition: "all 0.2s",
+          }}
+          onMouseOver={(e) => { e.target.style.color = "#e4e4e7"; e.target.style.borderColor = "rgba(255,255,255,0.15)"; }}
+          onMouseOut={(e) => { e.target.style.color = "#71717a"; e.target.style.borderColor = "rgba(255,255,255,0.08)"; }}
+        >Salir</button>
       </header>
 
-      {/* Contenido principal */}
-      <main className="flex flex-col items-center justify-center min-h-[calc(100vh-64px)] p-8">
-        {!selectedYear ? (
-          /* ===== SELECCIÓN DE AÑO ===== */
-          <>
-            <div className="text-center mb-12">
-              <p className="text-sky-400 text-sm tracking-[3px] uppercase mb-3 font-medium">
-                Bienvenido/a
-              </p>
-              <h1 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-white to-slate-300 bg-clip-text text-transparent">
-                ¿En qué año estás?
-              </h1>
-              <p className="text-slate-500 text-lg max-w-lg mx-auto">
-                Seleccioná tu año de cursada para acceder al material de estudio
-                y al asistente inteligente.
-              </p>
-            </div>
+      {/* Main */}
+      <main style={{ maxWidth: "720px", margin: "0 auto", padding: "80px 24px 40px", position: "relative", zIndex: 10 }}>
+        <div style={{ textAlign: "center", marginBottom: "56px" }}>
+          <h1 style={{
+            fontSize: "44px", fontWeight: 700, lineHeight: 1.08,
+            letterSpacing: "-2px", color: "#fafafa", marginBottom: "16px",
+          }}>
+            Tu tutor de<br />medicina personal
+          </h1>
+          <p style={{ fontSize: "16px", color: "#71717a", lineHeight: 1.6, maxWidth: "400px", margin: "0 auto" }}>
+            Respuestas basadas en la bibliografía oficial de la UBA. Pasá el cursor sobre tu año para ver las materias.
+          </p>
+        </div>
 
-            <div className="flex gap-6 flex-wrap justify-center">
-              {years.map((year) => (
-                <button
-                  key={year.number}
-                  onClick={() => setSelectedYear(year.number)}
-                  onMouseEnter={() => setHoveredYear(year.number)}
-                  onMouseLeave={() => setHoveredYear(null)}
-                  className={`w-52 p-8 rounded-2xl border transition-all duration-300 text-center
-                    ${
-                      hoveredYear === year.number
-                        ? "bg-sky-500/10 border-sky-500/40 -translate-y-1 shadow-xl shadow-sky-500/10"
-                        : "bg-white/[0.02] border-white/[0.06] hover:border-white/10"
-                    }`}
-                >
-                  <div
-                    className={`text-5xl font-extrabold mb-2 bg-clip-text text-transparent transition-all duration-300
-                    ${
-                      hoveredYear === year.number
-                        ? "bg-gradient-to-br from-sky-400 to-indigo-400"
-                        : "bg-gradient-to-br from-slate-500 to-slate-600"
-                    }`}
-                  >
-                    {year.number}°
-                  </div>
-                  <div
-                    className={`text-base font-medium mb-1 transition-colors ${
-                      hoveredYear === year.number
-                        ? "text-white"
-                        : "text-slate-400"
-                    }`}
-                  >
-                    {year.name}
-                  </div>
-                  <div
-                    className={`text-sm transition-colors ${
-                      hoveredYear === year.number
-                        ? "text-sky-300"
-                        : "text-slate-600"
-                    }`}
-                  >
-                    {year.materiaCount} materias
-                  </div>
-                </button>
-              ))}
-            </div>
+        {/* Year cards */}
+        <div style={{ display: "flex", gap: "14px", justifyContent: "center" }}>
+          {years.map(([num, data]) => {
+            const colors = yearColors[num];
+            const isActive = activeYear === num;
 
-            <div className="mt-12 p-4 bg-sky-500/[0.06] border border-sky-500/10 rounded-xl max-w-xl text-center">
-              <p className="text-sky-300 text-sm leading-relaxed">
-                💡 <strong>¿Cómo funciona?</strong> Seleccioná tu año y materia.
-                El asistente responderá tus preguntas basándose en la
-                bibliografía oficial de la cátedra.
-              </p>
-            </div>
-          </>
-        ) : (
-          /* ===== SELECCIÓN DE MATERIA ===== */
-          <>
-            <div className="text-center mb-12">
-              <p className="text-sky-400 text-sm tracking-[3px] uppercase mb-3">
-                {CURRICULUM[selectedYear].name}
-              </p>
-              <h1 className="text-4xl font-bold">Elegí tu materia</h1>
-            </div>
+            return (
+              <div key={num}
+                style={{ flex: 1, maxWidth: "220px", position: "relative", zIndex: isActive ? 100 : 1 }}
+                onMouseEnter={() => setActiveYear(num)}
+                onMouseLeave={() => setActiveYear(null)}
+              >
+                <div style={{
+                  padding: "32px 20px", borderRadius: "16px",
+                  background: isActive ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.02)",
+                  border: `1px solid ${isActive ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.06)"}`,
+                  cursor: "pointer", transition: "all 0.3s ease", textAlign: "center",
+                  transform: isActive ? "translateY(-6px)" : "translateY(0)",
+                  boxShadow: isActive ? `0 20px 40px ${colors.glow}` : "none",
+                }}>
+                  <div style={{
+                    width: "56px", height: "56px", borderRadius: "14px", margin: "0 auto 16px",
+                    background: colors.gradient,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: "24px", fontWeight: 700, color: "white",
+                    boxShadow: isActive ? `0 8px 24px ${colors.glow}` : "none",
+                    transition: "box-shadow 0.3s ease",
+                  }}>
+                    {num}°
+                  </div>
+                  <div style={{ fontSize: "15px", color: "#e4e4e7", fontWeight: 600, marginBottom: "4px" }}>{data.name}</div>
+                  <div style={{ fontSize: "12px", color: "#52525b" }}>{Object.keys(data.materias).length} materias</div>
+                </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 max-w-4xl w-full">
-              {getMaterias(selectedYear).map((materia) => (
-                <button
-                  key={materia.key}
-                  onClick={() => handleMateriaSelect(materia.key)}
-                  onMouseEnter={() => setHoveredMateria(materia.key)}
-                  onMouseLeave={() => setHoveredMateria(null)}
-                  className={`p-7 rounded-2xl border transition-all duration-300 text-left
-                    ${
-                      hoveredMateria === materia.key
-                        ? "bg-sky-500/10 border-sky-500/30 -translate-y-0.5"
-                        : "bg-white/[0.02] border-white/[0.05]"
-                    }`}
-                >
-                  <div className="text-3xl mb-3">{materia.icon}</div>
-                  <div className="text-xl font-semibold text-white mb-2">
-                    {materia.name}
-                  </div>
-                  <div className="text-slate-500 text-sm mb-3 leading-relaxed">
-                    {materia.libros.slice(0, 2).map((l) => l.split(" - ")[0]).join(", ")}
-                    {materia.libros.length > 2 &&
-                      ` +${materia.libros.length - 2} más`}
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {materia.temas.slice(0, 3).map((tema) => (
-                      <span
-                        key={tema}
-                        className="text-[11px] px-2 py-0.5 rounded bg-sky-500/10 text-sky-300 border border-sky-500/10"
+                {isActive && (
+                  <div style={{
+                    position: "absolute", top: "100%", left: "50%", transform: "translateX(-50%)",
+                    width: "280px", marginTop: "8px",
+                    background: "#18181b", border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: "14px", padding: "6px",
+                    boxShadow: `0 20px 50px rgba(0,0,0,0.6), 0 0 30px ${colors.glow}`,
+                    zIndex: 100, maxHeight: "50vh", overflowY: "auto",
+                  }}>
+                    <div style={{
+                      position: "absolute", top: "-6px", left: "50%", transform: "translateX(-50%) rotate(45deg)",
+                      width: "12px", height: "12px", background: "#18181b",
+                      borderTop: "1px solid rgba(255,255,255,0.1)",
+                      borderLeft: "1px solid rgba(255,255,255,0.1)",
+                    }} />
+
+                    {Object.entries(data.materias).map(([key, matData]) => (
+                      <button key={key} onClick={() => router.push(`/chat?year=${num}&materia=${key}`)}
+                        style={{
+                          width: "100%", padding: "12px 14px", borderRadius: "10px",
+                          background: "transparent", border: "none",
+                          cursor: "pointer", transition: "all 0.15s ease",
+                          display: "flex", alignItems: "center", gap: "10px", textAlign: "left",
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+                        onMouseOut={(e) => e.currentTarget.style.background = "transparent"}
                       >
-                        {tema}
-                      </span>
+                        <div style={{
+                          width: "34px", height: "34px", borderRadius: "8px",
+                          background: matData.color || "rgba(255,255,255,0.04)",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          fontSize: "16px", flexShrink: 0,
+                        }}>{matData.icon}</div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: "13px", fontWeight: 600, color: "#e4e4e7" }}>{matData.name}</div>
+                        </div>
+                        <div style={{ color: "#3f3f46", fontSize: "14px" }}>→</div>
+                      </button>
                     ))}
-                    {materia.temas.length > 3 && (
-                      <span className="text-[11px] text-slate-600 px-1">
-                        +{materia.temas.length - 3}
-                      </span>
-                    )}
                   </div>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: "300px", textAlign: "center" }}>
+          <p style={{ fontSize: "11px", color: "#3f3f46" }}>MedUBA Study · Facultad de Medicina · UBA</p>
+        </div>
       </main>
     </div>
   );

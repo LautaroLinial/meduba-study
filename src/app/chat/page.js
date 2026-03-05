@@ -3,6 +3,45 @@ import { useState, useEffect, useRef, Suspense, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CURRICULUM, getMateria } from "@/lib/curriculum";
 
+const yearColors = {
+  "1": { gradient: "linear-gradient(135deg, #3b82f6, #6366f1)", glow: "rgba(59,130,246,0.15)", accent: "#3b82f6" },
+  "2": { gradient: "linear-gradient(135deg, #10b981, #06b6d4)", glow: "rgba(16,185,129,0.15)", accent: "#10b981" },
+  "3": { gradient: "linear-gradient(135deg, #f59e0b, #ef4444)", glow: "rgba(245,158,11,0.15)", accent: "#f59e0b" },
+};
+
+const FUN_FACTS = [
+  "🧠 El cerebro humano consume el 20% de la energía total del cuerpo, aunque solo representa el 2% del peso corporal.",
+  "❤️ El corazón late aproximadamente 100.000 veces por día, bombeando unos 7.500 litros de sangre.",
+  "🦴 Los bebés nacen con alrededor de 300 huesos. Muchos se fusionan durante el crecimiento hasta llegar a 206 en el adulto.",
+  "👃 La nariz humana puede detectar más de 1 billón de olores distintos.",
+  "🔬 Si pudieras estirar todo el ADN de una sola célula, mediría aproximadamente 2 metros.",
+  "💉 Los glóbulos rojos tardan solo 20 segundos en completar un circuito por todo el cuerpo.",
+  "🫁 Los pulmones tienen una superficie interna de aproximadamente 70 m², equivalente a una cancha de tenis.",
+  "🧬 El cuerpo humano produce alrededor de 3,8 millones de células por segundo.",
+  "👁️ El ojo humano puede distinguir aproximadamente 10 millones de colores distintos.",
+  "🦠 En el cuerpo humano hay más bacterias que células propias: se estiman unos 38 billones de microorganismos.",
+  "💓 La aorta, la arteria más grande del cuerpo, tiene un diámetro similar al de una manguera de jardín.",
+  "🧠 Las neuronas transmiten señales a velocidades de hasta 430 km/h.",
+  "🫀 El corazón de una mujer late en promedio más rápido que el de un hombre.",
+  "🦴 El fémur es el hueso más largo y fuerte del cuerpo humano. Puede soportar hasta 30 veces el peso corporal.",
+  "💊 La aspirina fue derivada de la corteza del sauce, usada como remedio desde la antigüedad por los egipcios.",
+  "🔬 Un solo mililitro de sangre contiene aproximadamente 5 millones de glóbulos rojos.",
+  "🧬 Si pudieras unir todo el ADN de tu cuerpo, la cadena llegaría al sol y volvería unas 600 veces.",
+  "👁️ Los músculos que controlan los ojos son los más activos del cuerpo: se mueven más de 100.000 veces por día.",
+  "🫁 Un adulto inhala y exhala entre 15.000 y 20.000 litros de aire por día.",
+  "🧠 El cerebro está compuesto por aproximadamente un 75% de agua.",
+  "🦴 El hueso hioides, ubicado en el cuello, es el único hueso del cuerpo que no se articula con ningún otro.",
+  "❤️ El corazón comienza a latir a las 4 semanas de gestación y no para hasta la muerte.",
+  "🔬 Los capilares son tan finos que los glóbulos rojos deben pasar de a uno, deformándose para poder circular.",
+  "💉 El cuerpo humano tiene aproximadamente 96.000 km de vasos sanguíneos.",
+  "🧬 Cada célula del cuerpo contiene una copia completa del genoma humano: unos 20.000 genes.",
+  "🫀 El miocardio es el único músculo del cuerpo que nunca se fatiga en condiciones normales.",
+  "👃 El nervio olfatorio (I par craneal) es el único nervio craneal que se regenera constantemente.",
+  "🧠 El hipotálamo, del tamaño de una almendra, regula la temperatura, el hambre, la sed y el sueño.",
+  "🦠 La flora intestinal pesa entre 1 y 2 kg y es esencial para la digestión y la inmunidad.",
+  "💊 La penicilina fue descubierta por Alexander Fleming en 1928 de forma accidental, a partir de un hongo.",
+];
+
 function ChatContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -12,19 +51,20 @@ function ChatContent() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [funFact, setFunFact] = useState("");
   const [pageModal, setPageModal] = useState(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
   const yearData = CURRICULUM[year];
   const materia = getMateria(year, materiaKey);
+  const colors = yearColors[year] || yearColors["1"];
 
   useEffect(() => {
     if (materia) {
       setMessages([{
         role: "assistant",
-        content: `¡Hola! 👋 Soy tu tutor de **${materia.name}** para ${yearData.name}.\n\nTengo cargada la bibliografía de: ${materia.libros.map((l) => l.split(" - ")[0]).join(", ")}.\n\nPodés preguntarme sobre cualquier tema, por ejemplo:\n• "${materia.temas[0]}"\n• "${materia.temas[1]}"\n• "${materia.temas[2]}"\n\n¿Sobre qué tema querés estudiar hoy?`,
+        content: `¡Hola! 👋 Soy tu tutor de **${materia.name}** para ${yearData.name}.\n\n${materia.libros.length > 0 ? `Tengo cargada la bibliografía de: ${materia.libros.map((l) => l.split(" - ")[0]).join(", ")}.` : "Todavía no hay bibliografía cargada para esta materia."}\n\n¿Sobre qué tema querés estudiar?`,
         usedFragments: [],
       }]);
     }
@@ -34,29 +74,36 @@ function ChatContent() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  useEffect(() => {
+    let interval;
+    if (isLoading) {
+      setFunFact(FUN_FACTS[Math.floor(Math.random() * FUN_FACTS.length)]);
+      interval = setInterval(() => {
+        setFunFact(FUN_FACTS[Math.floor(Math.random() * FUN_FACTS.length)]);
+      }, 8000);
+    }
+    return () => clearInterval(interval);
+  }, [isLoading]);
+
   const openPage = useCallback((libro, page, fragmentText) => {
     const libroCompleto = materia.libros.find(l =>
       l.toLowerCase().includes(libro.toLowerCase().split("&")[0].trim().split(" ")[0])
     ) || libro;
-
     const params = new URLSearchParams({
       year, materia: materiaKey, libro: libroCompleto, page: page.toString(), mode: "pdf",
     });
-
-    setPageModal({
-      libro: libroCompleto,
-      page,
-      pdfUrl: `/api/page?${params}`,
-      fragmentText: fragmentText || "",
-    });
+    setPageModal({ libro: libroCompleto, page, pdfUrl: `/api/page?${params}`, fragmentText: fragmentText || "" });
   }, [year, materiaKey, materia]);
 
   if (!year || !materiaKey || !materia) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-slate-400 mb-4">No se seleccionó año o materia</p>
-          <button onClick={() => router.push("/")} className="px-6 py-3 bg-sky-500 rounded-lg text-white hover:bg-sky-600 transition-colors">Volver al inicio</button>
+      <div style={{ minHeight: "100vh", background: "#0a0a0c", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ textAlign: "center" }}>
+          <p style={{ color: "#71717a", marginBottom: "16px" }}>No se seleccionó año o materia</p>
+          <button onClick={() => router.push("/")}
+            style={{ padding: "10px 20px", background: colors.gradient, borderRadius: "10px", border: "none", color: "white", cursor: "pointer", fontWeight: 600 }}>
+            Volver al inicio
+          </button>
         </div>
       </div>
     );
@@ -68,7 +115,6 @@ function ChatContent() {
     setInput("");
     setMessages((prev) => [...prev, { role: "user", content: userMessage, usedFragments: [] }]);
     setIsLoading(true);
-
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -78,15 +124,11 @@ function ChatContent() {
           history: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
         }),
       });
-      if (!response.ok) throw new Error("Error en la respuesta");
+      if (!response.ok) throw new Error("Error");
       const data = await response.json();
-      setMessages((prev) => [...prev, {
-        role: "assistant", content: data.response, usedFragments: data.usedFragments || [],
-      }]);
+      setMessages((prev) => [...prev, { role: "assistant", content: data.response, usedFragments: data.usedFragments || [] }]);
     } catch (error) {
-      setMessages((prev) => [...prev, {
-        role: "assistant", content: "⚠️ Hubo un error. Intentá de nuevo.", usedFragments: [],
-      }]);
+      setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ Hubo un error. Intentá de nuevo.", usedFragments: [] }]);
     } finally {
       setIsLoading(false);
     }
@@ -103,20 +145,23 @@ function ChatContent() {
     return frag ? frag.text : "";
   }
 
+  function getRelevantSentences(fragmentText, maxSentences = 8) {
+    if (!fragmentText) return [];
+    return fragmentText.replace(/\n+/g, " ").replace(/\s+/g, " ")
+      .split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 30).slice(0, maxSentences);
+  }
+
   function formatMessageWithCitations(text, messageIndex) {
-    let html = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br/>");
-
+    let html = text.replace(/\*\*(.*?)\*\*/g, "<strong style='color:#fafafa'>$1</strong>").replace(/\n/g, "<br/>");
     const citationRegex = /[\(\[]((?:Latarjet|Rouvière|Testut|Netter|Prometheus|Ross|Junqueira|Geneser|Langman|Moore|Guyton|Ganong|Cingolani|Murray|Jawetz|Robbins|Goodman|Katzung|Argente|Harper|Lehninger|Stryer|Blanco|Cicardo|Frumento|Parisi|Boron|Basualdo|Rubin|Kumar|Velázquez|Florez|Cossio|Surós)[^,\)\]]*),\s*pág[s]?\.?\s*(\d+(?:\s*[-–]\s*\d+)?)[\)\]]/gi;
-
     html = html.replace(citationRegex, (match, libroRaw, pageNum) => {
       const libro = libroRaw.trim();
       const page = pageNum.trim().split(/[-–]/)[0].trim();
-      return `<button class="citation-btn" data-libro="${libro}" data-page="${page}" data-msgindex="${messageIndex}" style="display:inline;background:rgba(14,165,233,0.15);color:#7dd3fc;padding:2px 8px;border-radius:6px;border:1px solid rgba(14,165,233,0.3);cursor:pointer;font-size:inherit;font-family:inherit;transition:all 0.2s;"
-        onmouseover="this.style.background='rgba(14,165,233,0.3)'"
-        onmouseout="this.style.background='rgba(14,165,233,0.15)'"
-      >📖 ${libro}, pág. ${pageNum} — click para ver</button>`;
+      return `<button class="citation-btn" data-libro="${libro}" data-page="${page}" data-msgindex="${messageIndex}" style="display:inline;background:rgba(255,255,255,0.06);color:${colors.accent};padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);cursor:pointer;font-size:12px;font-family:inherit;transition:all 0.2s;margin:2px 0;"
+        onmouseover="this.style.background='rgba(255,255,255,0.1)';this.style.borderColor='rgba(255,255,255,0.15)'"
+        onmouseout="this.style.background='rgba(255,255,255,0.06)';this.style.borderColor='rgba(255,255,255,0.08)'"
+      >📖 ${libro}, pág. ${pageNum}</button>`;
     });
-
     return html;
   }
 
@@ -131,196 +176,226 @@ function ChatContent() {
     }
   };
 
-  // Extraer las oraciones más relevantes del fragmento
-  function getRelevantSentences(fragmentText, maxSentences = 8) {
-    if (!fragmentText) return [];
-    const sentences = fragmentText
-      .replace(/\n+/g, " ")
-      .replace(/\s+/g, " ")
-      .split(/(?<=[.!?])\s+/)
-      .filter(s => s.trim().length > 30);
-    return sentences.slice(0, maxSentences);
-  }
-
   return (
-    <div className="h-screen bg-slate-950 text-white flex flex-col">
-      <header className="border-b border-slate-800/50 px-4 h-14 flex items-center justify-between bg-slate-950/80 backdrop-blur-xl shrink-0">
-        <div className="flex items-center gap-3">
-          <button onClick={() => router.push("/")} className="text-slate-400 hover:text-white transition-colors text-sm">← Cambiar materia</button>
-          <div className="h-5 w-px bg-slate-800" />
-          <span className="text-sm text-slate-300">{materia.icon} {materia.name} — {yearData.name}</span>
+    <div style={{ height: "100vh", background: "#0a0a0c", display: "flex", flexDirection: "column" }}>
+      {/* Header */}
+      <header style={{
+        padding: "0 20px", height: "56px", display: "flex", alignItems: "center", justifyContent: "space-between",
+        borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <button onClick={() => router.push("/")}
+            style={{ background: "none", border: "none", color: "#52525b", cursor: "pointer", fontSize: "13px", padding: "6px 10px", borderRadius: "6px", transition: "all 0.2s" }}
+            onMouseOver={(e) => { e.target.style.color = "#e4e4e7"; e.target.style.background = "rgba(255,255,255,0.04)"; }}
+            onMouseOut={(e) => { e.target.style.color = "#52525b"; e.target.style.background = "none"; }}
+          >← Inicio</button>
+          <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.06)" }} />
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <div style={{
+              width: "28px", height: "28px", borderRadius: "7px", background: colors.gradient,
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "white",
+            }}>{year}°</div>
+            <span style={{ fontSize: "14px", color: "#a1a1aa", fontWeight: 500 }}>
+              {materia.icon} {materia.name}
+            </span>
+          </div>
         </div>
-        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-slate-400 hover:text-white transition-colors p-2 rounded-lg hover:bg-white/5">
-          {sidebarOpen ? "✕" : "☰"}
-        </button>
+        {materia.libros.length > 0 && (
+          <div style={{ fontSize: "11px", color: "#3f3f46" }}>
+            {materia.libros.map(l => l.split(" - ")[0]).join(" · ")}
+          </div>
+        )}
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="flex-1 flex flex-col">
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {messages.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div onClick={msg.role === "assistant" ? handleMessageClick : undefined}
-                  className={`max-w-[75%] px-4 py-3 whitespace-pre-wrap text-[15px] leading-relaxed
-                    ${msg.role === "user"
-                      ? "bg-gradient-to-r from-sky-500 to-indigo-500 rounded-2xl rounded-br-sm text-white"
-                      : "bg-white/[0.04] border border-white/[0.06] rounded-2xl rounded-bl-sm text-slate-200"}`}
-                >
-                  {msg.role === "assistant" && <div className="text-[11px] text-sky-400 font-semibold tracking-wider mb-1.5">TUTOR MEDUBA</div>}
-                  <div dangerouslySetInnerHTML={{ __html: msg.role === "assistant" ? formatMessageWithCitations(msg.content, i) : formatMessage(msg.content) }} />
-                </div>
+      {/* Messages */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "20px 0" }}>
+        <div style={{ maxWidth: "760px", margin: "0 auto", padding: "0 20px" }}>
+          {messages.map((msg, i) => (
+            <div key={i} style={{
+              display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
+              marginBottom: "16px",
+            }}>
+              {msg.role === "assistant" && (
+                <div style={{
+                  width: "28px", height: "28px", borderRadius: "8px", background: colors.gradient,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: "12px", fontWeight: 700, color: "white", flexShrink: 0, marginRight: "10px", marginTop: "2px",
+                }}>M</div>
+              )}
+              <div
+                onClick={msg.role === "assistant" ? handleMessageClick : undefined}
+                style={{
+                  maxWidth: "85%", padding: msg.role === "user" ? "10px 16px" : "0",
+                  borderRadius: msg.role === "user" ? "16px 16px 4px 16px" : "0",
+                  background: msg.role === "user" ? "rgba(255,255,255,0.08)" : "transparent",
+                  border: msg.role === "user" ? "1px solid rgba(255,255,255,0.06)" : "none",
+                  color: msg.role === "user" ? "#e4e4e7" : "#a1a1aa",
+                  fontSize: "14px", lineHeight: "1.7", whiteSpace: "pre-wrap",
+                }}
+              >
+                <div dangerouslySetInnerHTML={{
+                  __html: msg.role === "assistant" ? formatMessageWithCitations(msg.content, i) : formatMessage(msg.content),
+                }} />
               </div>
-            ))}
-            {isLoading && (
-              <div className="flex justify-start">
-                <div className="bg-white/[0.04] border border-white/[0.06] rounded-2xl rounded-bl-sm px-4 py-3">
-                  <div className="text-[11px] text-sky-400 font-semibold tracking-wider mb-1.5">TUTOR MEDUBA</div>
-                  <div className="flex gap-1.5 py-1">
-                    <div className="w-2 h-2 rounded-full bg-sky-400 animate-bounce" style={{ animationDelay: "0ms" }} />
-                    <div className="w-2 h-2 rounded-full bg-sky-400 animate-bounce" style={{ animationDelay: "150ms" }} />
-                    <div className="w-2 h-2 rounded-full bg-sky-400 animate-bounce" style={{ animationDelay: "300ms" }} />
+            </div>
+          ))}
+
+          {/* Loading with fun fact */}
+          {isLoading && (
+            <div style={{ display: "flex", alignItems: "flex-start", marginBottom: "16px" }}>
+              <div style={{
+                width: "28px", height: "28px", borderRadius: "8px", background: colors.gradient,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: "12px", fontWeight: 700, color: "white", flexShrink: 0, marginRight: "10px", marginTop: "2px",
+              }}>M</div>
+              <div style={{ maxWidth: "480px" }}>
+                <div style={{ display: "flex", gap: "6px", marginBottom: "12px" }}>
+                  <div className="dot-bounce-1" style={{ background: colors.accent }} />
+                  <div className="dot-bounce-2" style={{ background: colors.accent }} />
+                  <div className="dot-bounce-3" style={{ background: colors.accent }} />
+                </div>
+                <div style={{
+                  padding: "14px 16px", borderRadius: "12px",
+                  background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
+                }}>
+                  <div style={{ fontSize: "10px", color: "#52525b", textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: "8px" }}>
+                    ¿Sabías que?
+                  </div>
+                  <div style={{ fontSize: "13px", color: "#a1a1aa", lineHeight: "1.6" }}>
+                    {funFact}
                   </div>
                 </div>
               </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          <div className="border-t border-slate-800/50 p-4 bg-slate-950/50 shrink-0">
-            <div className="flex gap-2 items-end bg-slate-900 border border-slate-700 rounded-2xl p-1.5 pl-4">
-              <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
-                placeholder={`Preguntá sobre ${materia.name}...`} rows={1}
-                style={{ flex:1, background:"transparent", color:"#ffffff", fontSize:"14px", resize:"none", outline:"none", padding:"8px 0", maxHeight:"128px", border:"none", caretColor:"#ffffff", fontFamily:"inherit", lineHeight:"1.5" }}
-                onInput={(e) => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 128) + "px"; }}
-              />
-              <button onClick={sendMessage} disabled={!input.trim() || isLoading}
-                className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0 transition-all ${input.trim() && !isLoading ? "bg-gradient-to-r from-sky-500 to-indigo-500 text-white cursor-pointer" : "bg-white/5 text-slate-600 cursor-default"}`}
-              >↑</button>
             </div>
-            <p className="text-center text-[11px] text-slate-600 mt-2">Hacé click en las citas 📖 para ver la página original del libro</p>
-          </div>
+          )}
+          <div ref={messagesEndRef} />
         </div>
-
-        {sidebarOpen && (
-          <div className="w-72 border-l border-slate-800/50 bg-black/20 overflow-y-auto shrink-0 hidden md:block">
-            <div className="p-5">
-              <h3 className="text-[11px] text-slate-500 tracking-[2px] uppercase font-semibold mb-3">Bibliografía</h3>
-              {materia.libros.map((libro) => (
-                <div key={libro} className="flex items-center gap-2 p-2.5 mb-2 rounded-lg bg-sky-500/[0.06] border border-sky-500/10 text-slate-400 text-sm">
-                  <span>📖</span><span>{libro.split(" - ")[0]}</span>
-                </div>
-              ))}
-              <h3 className="text-[11px] text-slate-500 tracking-[2px] uppercase font-semibold mt-6 mb-3">Temas</h3>
-              {materia.temas.map((tema) => (
-                <button key={tema} onClick={() => { setInput(`Explicame sobre ${tema}`); inputRef.current?.focus(); }}
-                  className="block w-full text-left p-2 mb-1.5 rounded-lg text-sky-300 text-sm hover:bg-sky-500/10 border border-transparent hover:border-sky-500/15 transition-all"
-                >{tema}</button>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Modal con PDF + panel de texto relevante */}
+      {/* Input */}
+      <div style={{ padding: "16px 20px 20px", flexShrink: 0, borderTop: "1px solid rgba(255,255,255,0.04)" }}>
+        <div style={{ maxWidth: "760px", margin: "0 auto" }}>
+          <div style={{
+            display: "flex", alignItems: "flex-end", gap: "10px",
+            background: "#18181b", border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: "14px", padding: "6px 6px 6px 18px",
+            transition: "border-color 0.2s",
+          }}
+            onFocus={(e) => e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)"}
+            onBlur={(e) => e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"}
+          >
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={`Preguntá sobre ${materia.name}...`}
+              rows={1}
+              style={{
+                flex: 1, background: "transparent", color: "#e4e4e7", fontSize: "14px",
+                resize: "none", outline: "none", padding: "8px 0", maxHeight: "120px",
+                border: "none", caretColor: "#e4e4e7", fontFamily: "'DM Sans', sans-serif", lineHeight: "1.5",
+              }}
+              onInput={(e) => {
+                e.target.style.height = "auto";
+                e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+              }}
+            />
+            <button
+              onClick={sendMessage}
+              disabled={!input.trim() || isLoading}
+              style={{
+                width: "36px", height: "36px", borderRadius: "10px",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: "16px", flexShrink: 0, border: "none", cursor: input.trim() && !isLoading ? "pointer" : "default",
+                background: input.trim() && !isLoading ? colors.gradient : "rgba(255,255,255,0.04)",
+                color: input.trim() && !isLoading ? "white" : "#3f3f46",
+                transition: "all 0.2s",
+              }}
+            >↑</button>
+          </div>
+          <p style={{ textAlign: "center", fontSize: "11px", color: "#3f3f46", marginTop: "10px" }}>
+            Hacé click en las citas 📖 para ver la página original del libro
+          </p>
+        </div>
+      </div>
+
+      {/* Modal PDF + panel lateral */}
       {pageModal && (
         <div
-          style={{ position:"fixed", inset:0, backgroundColor:"rgba(0,0,0,0.95)", zIndex:9999, display:"flex", alignItems:"center", justifyContent:"center", padding:"16px" }}
+          style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.92)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
           onClick={() => setPageModal(null)}
         >
           <div
-            style={{ backgroundColor:"#0f172a", border:"1px solid #334155", borderRadius:"16px", maxWidth:"1200px", width:"100%", maxHeight:"90vh", overflow:"hidden", display:"flex", flexDirection:"column", boxShadow:"0 25px 50px rgba(0,0,0,0.8)" }}
+            style={{ backgroundColor: "#111113", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", maxWidth: "1200px", width: "100%", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 25px 50px rgba(0,0,0,0.5)" }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
-            <div style={{ padding:"12px 24px", borderBottom:"1px solid #1e293b", display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 }}>
-              <div>
-                <div style={{ color:"white", fontWeight:600, fontSize:"16px" }}>📖 {pageModal.libro.split(" - ")[0]}</div>
-                <div style={{ color:"#38bdf8", fontSize:"14px" }}>Página {pageModal.page}</div>
+            <div style={{ padding: "14px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div style={{ width: "28px", height: "28px", borderRadius: "7px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", color: "white" }}>📖</div>
+                <div>
+                  <div style={{ fontSize: "14px", fontWeight: 600, color: "#e4e4e7" }}>{pageModal.libro.split(" - ")[0]}</div>
+                  <div style={{ fontSize: "12px", color: colors.accent }}>Página {pageModal.page}</div>
+                </div>
               </div>
-              <button
-                onClick={() => setPageModal(null)}
-                style={{ color:"#94a3b8", fontSize:"20px", background:"none", border:"none", cursor:"pointer", padding:"8px" }}
+              <button onClick={() => setPageModal(null)}
+                style={{ color: "#52525b", fontSize: "18px", background: "rgba(255,255,255,0.04)", border: "none", cursor: "pointer", padding: "6px 10px", borderRadius: "8px", transition: "all 0.2s" }}
+                onMouseOver={(e) => { e.target.style.color = "#e4e4e7"; e.target.style.background = "rgba(255,255,255,0.08)"; }}
+                onMouseOut={(e) => { e.target.style.color = "#52525b"; e.target.style.background = "rgba(255,255,255,0.04)"; }}
               >✕</button>
             </div>
 
-            {/* Contenido: PDF + panel lateral */}
-            <div style={{ flex:1, display:"flex", overflow:"hidden" }}>
-              {/* PDF embebido */}
-              <div style={{ flex:1, overflow:"hidden" }}>
-                <iframe
-                  src={pageModal.pdfUrl}
-                  style={{ width:"100%", height:"100%", border:"none", minHeight:"70vh" }}
-                  title={`${pageModal.libro} - Página ${pageModal.page}`}
-                />
+            <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+              <div style={{ flex: 1, overflow: "hidden" }}>
+                <iframe src={pageModal.pdfUrl} style={{ width: "100%", height: "100%", border: "none", minHeight: "70vh" }}
+                  title={`${pageModal.libro} - Página ${pageModal.page}`} />
               </div>
 
-              {/* Panel lateral: texto relevante */}
               {pageModal.fragmentText && (
-                <div style={{
-                  width:"320px", borderLeft:"1px solid #1e293b", overflow:"auto",
-                  flexShrink:0, display:"flex", flexDirection:"column",
-                }}>
-                  {/* Header del panel */}
-                  <div style={{
-                    padding:"14px 16px", borderBottom:"1px solid #1e293b",
-                    flexShrink:0,
-                  }}>
-                    <div style={{ display:"flex", alignItems:"center", gap:"8px", marginBottom:"6px" }}>
-                      <div style={{ width:"12px", height:"12px", backgroundColor:"rgba(250,204,21,0.5)", borderRadius:"3px" }} />
-                      <span style={{ color:"#facc15", fontSize:"13px", fontWeight:600 }}>
-                        Información utilizada
-                      </span>
+                <div style={{ width: "300px", borderLeft: "1px solid rgba(255,255,255,0.06)", overflow: "auto", flexShrink: 0, display: "flex", flexDirection: "column" }}>
+                  <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                      <div style={{ width: "10px", height: "10px", backgroundColor: "rgba(250,204,21,0.5)", borderRadius: "3px" }} />
+                      <span style={{ color: "#facc15", fontSize: "12px", fontWeight: 600 }}>Información utilizada</span>
                     </div>
-                    <p style={{ color:"#64748b", fontSize:"11px", lineHeight:"1.4", margin:0 }}>
-                      El tutor usó este texto de la página {pageModal.page} para su respuesta. Buscalo en el PDF de la izquierda.
+                    <p style={{ color: "#52525b", fontSize: "11px", lineHeight: "1.4", margin: 0 }}>
+                      Texto que el tutor usó de esta página
                     </p>
                   </div>
 
-                  {/* Oraciones relevantes */}
-                  <div style={{ padding:"12px 16px", overflow:"auto", flex:1 }}>
+                  <div style={{ padding: "10px 12px", overflow: "auto", flex: 1 }}>
                     {getRelevantSentences(pageModal.fragmentText).map((sentence, idx) => (
-                      <div
-                        key={idx}
-                        style={{
-                          padding:"10px 12px",
-                          marginBottom:"8px",
-                          backgroundColor:"rgba(250,204,21,0.08)",
-                          borderLeft:"3px solid rgba(250,204,21,0.5)",
-                          borderRadius:"0 8px 8px 0",
-                          color:"#e2e8f0",
-                          fontSize:"13px",
-                          lineHeight:"1.6",
-                          userSelect:"text",
-                          cursor:"text",
-                        }}
-                      >
+                      <div key={idx} style={{
+                        padding: "10px 12px", marginBottom: "6px",
+                        backgroundColor: "rgba(250,204,21,0.05)",
+                        borderLeft: "2px solid rgba(250,204,21,0.4)",
+                        borderRadius: "0 8px 8px 0",
+                        color: "#d4d4d8", fontSize: "12px", lineHeight: "1.6",
+                        userSelect: "text", cursor: "text",
+                      }}>
                         {sentence}
                       </div>
                     ))}
                   </div>
 
-                  {/* Botón copiar */}
-                  <div style={{ padding:"12px 16px", borderTop:"1px solid #1e293b", flexShrink:0 }}>
-                    <button
-                      onClick={() => {
-                        const sentences = getRelevantSentences(pageModal.fragmentText);
-                        navigator.clipboard.writeText(sentences.join("\n\n"));
-                      }}
+                  <div style={{ padding: "10px 12px", borderTop: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
+                    <button onClick={() => {
+                      navigator.clipboard.writeText(getRelevantSentences(pageModal.fragmentText).join("\n\n"));
+                    }}
                       style={{
-                        width:"100%", padding:"8px", borderRadius:"8px", fontSize:"12px",
-                        cursor:"pointer", border:"1px solid rgba(14,165,233,0.3)",
-                        backgroundColor:"rgba(14,165,233,0.1)", color:"#7dd3fc",
+                        width: "100%", padding: "8px", borderRadius: "8px", fontSize: "12px",
+                        cursor: "pointer", border: "1px solid rgba(255,255,255,0.08)",
+                        backgroundColor: "rgba(255,255,255,0.03)", color: "#a1a1aa", transition: "all 0.2s",
                       }}
-                    >
-                      📋 Copiar texto relevante
-                    </button>
+                      onMouseOver={(e) => { e.target.style.background = "rgba(255,255,255,0.06)"; e.target.style.color = "#e4e4e7"; }}
+                      onMouseOut={(e) => { e.target.style.background = "rgba(255,255,255,0.03)"; e.target.style.color = "#a1a1aa"; }}
+                    >📋 Copiar texto</button>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Footer */}
-            <div style={{ padding:"10px 24px", borderTop:"1px solid #1e293b", fontSize:"11px", color:"#475569", flexShrink:0 }}>
+            <div style={{ padding: "10px 24px", borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "11px", color: "#3f3f46", flexShrink: 0 }}>
               {pageModal.libro} — Página {pageModal.page} · Podés seleccionar y copiar texto del PDF
             </div>
           </div>
@@ -333,7 +408,9 @@ function ChatContent() {
 export default function ChatPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center"><div className="text-white">Cargando...</div></div>
+      <div style={{ minHeight: "100vh", background: "#0a0a0c", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ color: "#71717a" }}>Cargando...</div>
+      </div>
     }>
       <ChatContent />
     </Suspense>
@@ -341,5 +418,5 @@ export default function ChatPage() {
 }
 
 function formatMessage(text) {
-  return text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br/>");
+  return text.replace(/\*\*(.*?)\*\*/g, "<strong style='color:#fafafa'>$1</strong>").replace(/\n/g, "<br/>");
 }
