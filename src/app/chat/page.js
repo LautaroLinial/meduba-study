@@ -131,29 +131,16 @@ function ChatContent() {
     });
   };
 
-  const openPage = useCallback(async (libro, page, fragmentText) => {
+  const openPage = useCallback((libro, page, fragmentText) => {
     const libroCompleto = loadedLibros.map(l => l.name).find(l =>
       l.toLowerCase().includes(libro.toLowerCase().split("&")[0].trim().split(" ")[0])
     ) || libro;
 
-    // Mostrar modal con spinner mientras se obtiene la URL firmada
-    setPageModal({ libro: libroCompleto, page, pdfUrl: null, fragmentText: fragmentText || "" });
-
-    try {
-      const params = new URLSearchParams({
-        year, materia: materiaKey, libro: libroCompleto, page: page.toString()
-      });
-      const res = await fetch(`/api/page?${params}`);
-      const data = await res.json();
-      if (data.signedUrl) {
-        // #page=N le indica al visor PDF en qué página abrir directamente
-        setPageModal(prev => prev ? { ...prev, pdfUrl: `${data.signedUrl}#page=${page}` } : null);
-      } else {
-        setPageModal(prev => prev ? { ...prev, pdfUrl: "error" } : null);
-      }
-    } catch {
-      setPageModal(prev => prev ? { ...prev, pdfUrl: "error" } : null);
-    }
+    // La URL de /api/page devuelve directamente la imagen JPEG de la página
+    const params = new URLSearchParams({
+      year, materia: materiaKey, libro: libroCompleto, page: page.toString()
+    });
+    setPageModal({ libro: libroCompleto, page, pdfUrl: `/api/page?${params}`, fragmentText: fragmentText || "" });
   }, [year, materiaKey, loadedLibros]);
 
   const sendMessage = async () => {
@@ -335,23 +322,19 @@ function ChatContent() {
             <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
               {/* Visor PDF (Lado Izquierdo) */}
               <div style={{ flex: 1, background: "#000", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {pageModal.pdfUrl === null && (
-                  <div style={{ color: "#52525b", fontSize: "14px", textAlign: "center" }}>
-                    <div style={{ fontSize: "28px", marginBottom: "12px", animation: "spin 1s linear infinite" }}>⏳</div>
-                    Obteniendo acceso al libro...
-                  </div>
-                )}
                 {pageModal.pdfUrl === "error" && (
                   <div style={{ color: "#ef4444", fontSize: "14px", textAlign: "center" }}>
-                    No se pudo cargar el PDF.<br/>
+                    No se pudo cargar la página.<br/>
                     <span style={{ color: "#52525b", fontSize: "12px" }}>Verificá que el libro esté subido correctamente.</span>
                   </div>
                 )}
                 {pageModal.pdfUrl && pageModal.pdfUrl !== "error" && (
-                  <iframe
+                  <img
                     key={pageModal.pdfUrl}
                     src={pageModal.pdfUrl}
-                    style={{ width: "100%", height: "100%", border: "none", position: "absolute", inset: 0 }}
+                    alt={`${pageModal.libro} — Página ${pageModal.page}`}
+                    onError={() => setPageModal(prev => prev ? { ...prev, pdfUrl: "error" } : null)}
+                    style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }}
                   />
                 )}
               </div>
