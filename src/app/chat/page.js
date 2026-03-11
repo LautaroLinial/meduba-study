@@ -377,8 +377,17 @@ function ChatContent() {
 
                 <div style={{ padding: "16px", borderTop: "1px solid #27272a" }}>
                   <button onClick={() => {
-                      navigator.clipboard.writeText(pageModal.fragmentText);
-                      alert("Texto copiado al portapapeles");
+                      navigator.clipboard.writeText(pageModal.fragmentText)
+                        .then(() => alert("Texto copiado al portapapeles"))
+                        .catch(() => {
+                          const ta = document.createElement("textarea");
+                          ta.value = pageModal.fragmentText;
+                          document.body.appendChild(ta);
+                          ta.select();
+                          document.execCommand("copy");
+                          document.body.removeChild(ta);
+                          alert("Texto copiado al portapapeles");
+                        });
                   }} style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#e4e4e7", cursor: "pointer", fontSize: "12px" }}>
                     📋 Copiar fragmento completo
                   </button>
