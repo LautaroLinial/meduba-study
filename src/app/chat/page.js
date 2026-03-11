@@ -160,8 +160,15 @@ function ChatContent() {
     if (!input.trim() || isLoading) return;
     const userMessage = input.trim();
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: userMessage, usedFragments: [] }]);
+
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", content: userMessage, usedFragments: [] },
+      { role: "assistant", content: "", usedFragments: [] }
+    ]);
+
     setIsLoading(true);
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -174,13 +181,54 @@ function ChatContent() {
           activeLibros: activeLibros,
         }),
       });
-      if (!response.ok) throw new Error("Error");
-      const data = await response.json();
-      setMessages((prev) => [...prev, { role: "assistant", content: data.response, usedFragments: data.usedFragments || [] }]);
-    } catch (error) {
-      setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ Hubo un error al conectar con el servidor. Intentá de nuevo.", usedFragments: [] }]);
-    } finally {
+
+      if (!response.ok) throw new Error("Error en la respuesta");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let done = false;
+      let aiText = "";
+      let metadataParsed = false;
+      let currentFragments = [];
+
       setIsLoading(false);
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          if (!metadataParsed && chunk.includes('---\n\n')) {
+            const parts = chunk.split('---\n\n');
+            try {
+              const meta = JSON.parse(parts[0]);
+              if (meta.type === 'metadata') currentFragments = meta.usedFragments;
+            } catch(e) {}
+            aiText += parts[1] || "";
+            metadataParsed = true;
+          } else {
+            aiText += chunk;
+          }
+
+          setMessages((prev) => {
+            const newMessages = [...prev];
+            newMessages[newMessages.length - 1] = {
+              role: "assistant", content: aiText, usedFragments: currentFragments
+            };
+            return newMessages;
+          });
+        }
+      }
+    } catch (error) {
+      console.error(error);
+      setIsLoading(false);
+      setMessages((prev) => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1] = {
+          role: "assistant", content: "⚠️ Hubo un error al conectar con el servidor. Intentá de nuevo.", usedFragments: []
+        };
+        return newMessages;
+      });
     }
   };
 
