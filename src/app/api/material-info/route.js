@@ -1,6 +1,6 @@
 // ============================================================
 // API ROUTE - /api/material-info
-// Devuelve qué libros están cargados para una materia
+// Devuelve libros cargados, opcionalmente filtrados por cátedra
 // ============================================================
 
 import { NextResponse } from "next/server";
@@ -12,6 +12,7 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const year = searchParams.get("year");
     const materia = searchParams.get("materia");
+    const catedra = searchParams.get("catedra");
 
     if (!year || !materia) {
       return NextResponse.json({ error: "Faltan parámetros" }, { status: 400 });
@@ -26,7 +27,7 @@ export async function GET(request) {
     const raw = fs.readFileSync(materialesPath, "utf-8");
     const data = JSON.parse(raw);
 
-    // Extraer libros únicos con cantidad de fragmentos
+    // Extraer libros únicos
     const librosMap = {};
     data.fragments.forEach((f) => {
       if (!librosMap[f.libro]) {
@@ -36,11 +37,25 @@ export async function GET(request) {
       if (f.page) librosMap[f.libro].pages.add(f.page);
     });
 
-    const libros = Object.values(librosMap).map((l) => ({
+    let libros = Object.values(librosMap).map((l) => ({
       name: l.name,
       fragments: l.fragments,
       pages: l.pages.size,
     }));
+
+    // Si se pide una cátedra específica, filtrar por asignaciones
+    if (catedra) {
+      const configPath = path.join(process.cwd(), "data", "config", `${year}_${materia}_catedras.json`);
+      if (fs.existsSync(configPath)) {
+        const configRaw = fs.readFileSync(configPath, "utf-8");
+        const config = JSON.parse(configRaw);
+        const assignedBooks = config.assignments?.[catedra] || [];
+        if (assignedBooks.length > 0) {
+          libros = libros.filter(l => assignedBooks.includes(l.name));
+        }
+      }
+      // Si no hay config, muestra todos los libros
+    }
 
     return NextResponse.json({ libros });
 

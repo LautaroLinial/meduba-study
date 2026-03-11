@@ -36,6 +36,35 @@ const FUN_FACTS = [
   "💊 La penicilina fue descubierta por Fleming en 1928 de forma accidental.",
 ];
 
+function RotatingFunFact({ index }) {
+  const [fact, setFact] = useState(() => FUN_FACTS[Math.floor(Math.random() * FUN_FACTS.length)]);
+  const [opacity, setOpacity] = useState(1);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setOpacity(0);
+      setTimeout(() => {
+        setFact(prevFact => {
+          let newFact;
+          do {
+            newFact = FUN_FACTS[Math.floor(Math.random() * FUN_FACTS.length)];
+          } while (newFact === prevFact);
+          return newFact;
+        });
+        setOpacity(1); 
+      }, 400); 
+    }, 12000 + (index * 1000));
+    return () => clearInterval(interval);
+  }, [index]);
+
+  return (
+    <div style={{ padding: "14px 16px", borderRadius: "12px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+      <div style={{ fontSize: "10px", color: "#52525b", textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: "8px" }}>💡 ¿Sabías que?</div>
+      <div style={{ fontSize: "13px", color: "#a1a1aa", lineHeight: "1.6", opacity: opacity, transition: "opacity 0.4s ease-in-out", minHeight: "42px" }}>{fact}</div>
+    </div>
+  );
+}
+
 function ChatContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -46,12 +75,13 @@ function ChatContent() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [funFact, setFunFact] = useState("");
   const [pageModal, setPageModal] = useState(null);
   const [loadedLibros, setLoadedLibros] = useState([]);
   const [activeLibros, setActiveLibros] = useState([]);
+
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const latestQuestionRef = useRef(null);
 
   const yearData = CURRICULUM[year];
   const materia = getMateria(year, materiaKey);
@@ -59,10 +89,9 @@ function ChatContent() {
   const catedraName = catedraData?.name || "";
   const colors = yearColors[year] || yearColors["1"];
 
-  // Cargar libros disponibles
   useEffect(() => {
     if (year && materiaKey) {
-      fetch(`/api/material-info?year=${year}&materia=${materiaKey}`)
+      fetch(`/api/material-info?year=${year}&materia=${materiaKey}&catedra=${catedraNum}`)
         .then(r => r.json())
         .then(data => {
           if (data.libros) {
@@ -72,7 +101,7 @@ function ChatContent() {
         })
         .catch(() => {});
     }
-  }, [year, materiaKey]);
+  }, [year, materiaKey, catedraNum]);
 
   useEffect(() => {
     if (materia) {
@@ -85,76 +114,113 @@ function ChatContent() {
   }, [year, materiaKey, catedraNum]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  useEffect(() => {
-    let interval;
-    if (isLoading) {
-      setFunFact(FUN_FACTS[Math.floor(Math.random() * FUN_FACTS.length)]);
-      interval = setInterval(() => {
-        setFunFact(FUN_FACTS[Math.floor(Math.random() * FUN_FACTS.length)]);
-      }, 8000);
+    if (latestQuestionRef.current) {
+      latestQuestionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
-    return () => clearInterval(interval);
-  }, [isLoading]);
+  }, [messages.length]);
 
   const toggleLibro = (libroName) => {
     setActiveLibros(prev => {
       if (prev.includes(libroName)) {
-        if (prev.length === 1) return prev; // No dejar sin libros
+        if (prev.length === 1) return prev;
         return prev.filter(l => l !== libroName);
       }
       return [...prev, libroName];
     });
   };
 
-  const openPage = useCallback((libro, page, fragmentText) => {
+  const openPage = useCallback(async (libro, page, fragmentText) => {
     const libroCompleto = loadedLibros.map(l => l.name).find(l =>
       l.toLowerCase().includes(libro.toLowerCase().split("&")[0].trim().split(" ")[0])
     ) || libro;
-    const params = new URLSearchParams({
-      year, materia: materiaKey, libro: libroCompleto, page: page.toString(), mode: "pdf",
-    });
-    setPageModal({ libro: libroCompleto, page, pdfUrl: `/api/page?${params}`, fragmentText: fragmentText || "" });
-  }, [year, materiaKey, loadedLibros]);
 
-  if (!year || !materiaKey || !materia) {
-    return (
-      <div style={{ minHeight: "100vh", background: "#0a0a0c", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ textAlign: "center" }}>
-          <p style={{ color: "#71717a", marginBottom: "16px" }}>No se seleccionó año o materia</p>
-          <button onClick={() => router.push("/")}
-            style={{ padding: "10px 20px", background: colors.gradient, borderRadius: "10px", border: "none", color: "white", cursor: "pointer", fontWeight: 600 }}>
-            Volver al inicio
-          </button>
-        </div>
-      </div>
-    );
-  }
+    // Mostrar modal con spinner mientras se obtiene la URL firmada
+    setPageModal({ libro: libroCompleto, page, pdfUrl: null, fragmentText: fragmentText || "" });
+
+    try {
+      const params = new URLSearchParams({
+        year, materia: materiaKey, libro: libroCompleto, page: page.toString()
+      });
+      const res = await fetch(`/api/page?${params}`);
+      const data = await res.json();
+      if (data.signedUrl) {
+        // #page=N le indica al visor PDF en qué página abrir directamente
+        setPageModal(prev => prev ? { ...prev, pdfUrl: `${data.signedUrl}#page=${page}` } : null);
+      } else {
+        setPageModal(prev => prev ? { ...prev, pdfUrl: "error" } : null);
+      }
+    } catch {
+      setPageModal(prev => prev ? { ...prev, pdfUrl: "error" } : null);
+    }
+  }, [year, materiaKey, loadedLibros]);
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
     const userMessage = input.trim();
     setInput("");
-    setMessages((prev) => [...prev, { role: "user", content: userMessage, usedFragments: [] }]);
+    
+    setMessages((prev) => [
+      ...prev, 
+      { role: "user", content: userMessage, usedFragments: [] },
+      { role: "assistant", content: "", usedFragments: [] }
+    ]);
+    
     setIsLoading(true);
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: userMessage, year: parseInt(year), materia: materiaKey,
+          message: userMessage, 
+          year: parseInt(year), 
+          materia: materiaKey,
           history: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
           activeLibros: activeLibros,
         }),
       });
-      if (!response.ok) throw new Error("Error");
-      const data = await response.json();
-      setMessages((prev) => [...prev, { role: "assistant", content: data.response, usedFragments: data.usedFragments || [] }]);
+
+      if (!response.ok) throw new Error("Error en la respuesta");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let done = false;
+      let aiText = "";
+      let metadataParsed = false;
+      let currentFragments = [];
+
+      setIsLoading(false); 
+
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        done = readerDone;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          if (!metadataParsed && chunk.includes('---\n\n')) {
+            const parts = chunk.split('---\n\n');
+            try {
+               const meta = JSON.parse(parts[0]);
+               if (meta.type === 'metadata') currentFragments = meta.usedFragments;
+            } catch(e) {}
+            aiText += parts[1] || "";
+            metadataParsed = true;
+          } else {
+             aiText += chunk;
+          }
+
+          setMessages((prev) => {
+            const newMessages = [...prev];
+            newMessages[newMessages.length - 1] = { 
+              role: "assistant", content: aiText, usedFragments: currentFragments 
+            };
+            return newMessages;
+          });
+        }
+      }
     } catch (error) {
-      setMessages((prev) => [...prev, { role: "assistant", content: "⚠️ Hubo un error. Intentá de nuevo.", usedFragments: [] }]);
-    } finally {
+      console.error(error);
       setIsLoading(false);
     }
   };
@@ -163,17 +229,10 @@ function ChatContent() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
 
-  function getFragmentForPage(messageIndex, page) {
-    const msg = messages[messageIndex];
-    if (!msg || !msg.usedFragments) return "";
-    const frag = msg.usedFragments.find(f => f.page === page);
-    return frag ? frag.text : "";
-  }
-
-  function getRelevantSentences(fragmentText, maxSentences = 8) {
+  function getRelevantSentences(fragmentText, maxSentences = 10) {
     if (!fragmentText) return [];
     return fragmentText.replace(/\n+/g, " ").replace(/\s+/g, " ")
-      .split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 30).slice(0, maxSentences);
+      .split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 25).slice(0, maxSentences);
   }
 
   function formatMessageWithCitations(text, messageIndex) {
@@ -182,10 +241,7 @@ function ChatContent() {
     html = html.replace(citationRegex, (match, libroRaw, pageNum) => {
       const libro = libroRaw.trim();
       const page = pageNum.trim().split(/[-–]/)[0].trim();
-      return `<button class="citation-btn" data-libro="${libro}" data-page="${page}" data-msgindex="${messageIndex}" style="display:inline;background:rgba(255,255,255,0.06);color:${colors.accent};padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);cursor:pointer;font-size:12px;font-family:inherit;transition:all 0.2s;margin:2px 0;"
-        onmouseover="this.style.background='rgba(255,255,255,0.1)';this.style.borderColor='rgba(255,255,255,0.15)'"
-        onmouseout="this.style.background='rgba(255,255,255,0.06)';this.style.borderColor='rgba(255,255,255,0.08)'"
-      >📖 ${libro}, pág. ${pageNum}</button>`;
+      return `<button class="citation-btn" data-libro="${libro}" data-page="${page}" data-msgindex="${messageIndex}" style="display:inline;background:rgba(255,255,255,0.06);color:${colors.accent};padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);cursor:pointer;font-size:12px;font-family:inherit;transition:all 0.2s;margin:2px 0;">📖 ${libro}, pág. ${pageNum}</button>`;
     });
     return html;
   }
@@ -196,232 +252,138 @@ function ChatContent() {
       const libro = btn.getAttribute("data-libro");
       const page = btn.getAttribute("data-page");
       const msgIndex = parseInt(btn.getAttribute("data-msgindex"));
-      const fragmentText = getFragmentForPage(msgIndex, parseInt(page));
+      const msg = messages[msgIndex];
+      const fragmentText = msg?.usedFragments?.find(f => f.page === parseInt(page))?.text || "";
       if (libro && page) openPage(libro, parseInt(page), fragmentText);
     }
   };
 
+  const lastUserIndex = messages.map(m => m.role).lastIndexOf("user");
+
   return (
     <div style={{ height: "100vh", background: "#0a0a0c", display: "flex", flexDirection: "column" }}>
       {/* Header */}
-      <header style={{
-        padding: "0 20px", height: "56px", display: "flex", alignItems: "center", justifyContent: "space-between",
-        borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0,
-      }}>
+      <header style={{ padding: "0 20px", height: "56px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <button onClick={() => router.push("/")}
-            style={{ background: "none", border: "none", color: "#52525b", cursor: "pointer", fontSize: "13px", padding: "6px 10px", borderRadius: "6px", transition: "all 0.2s" }}
-            onMouseOver={(e) => { e.target.style.color = "#e4e4e7"; e.target.style.background = "rgba(255,255,255,0.04)"; }}
-            onMouseOut={(e) => { e.target.style.color = "#52525b"; e.target.style.background = "none"; }}
-          >← Inicio</button>
+          <button onClick={() => router.push("/")} style={{ background: "none", border: "none", color: "#52525b", cursor: "pointer", fontSize: "13px", padding: "6px 10px", borderRadius: "6px" }}>← Inicio</button>
           <div style={{ width: "1px", height: "20px", background: "rgba(255,255,255,0.06)" }} />
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div style={{
-              width: "28px", height: "28px", borderRadius: "7px", background: colors.gradient,
-              display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "white",
-            }}>{year}°</div>
-            <span style={{ fontSize: "14px", color: "#a1a1aa", fontWeight: 500 }}>
-              {materia.icon} {materia.name}
-              {catedraName && catedraName !== "Cátedra Única" && (
-                <span style={{ color: "#52525b", fontSize: "12px", marginLeft: "6px" }}>· {catedraName}</span>
-              )}
-            </span>
+            <div style={{ width: "28px", height: "28px", borderRadius: "7px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "white" }}>{year}°</div>
+            <span style={{ fontSize: "14px", color: "#a1a1aa", fontWeight: 500 }}>{materia.icon} {materia.name}</span>
           </div>
         </div>
       </header>
 
       {/* Book chips */}
-      {loadedLibros.length > 0 && (
-        <div style={{
-          padding: "8px 20px", borderBottom: "1px solid rgba(255,255,255,0.04)",
-          display: "flex", alignItems: "center", gap: "6px", flexShrink: 0, flexWrap: "wrap",
-        }}>
-          <span style={{ fontSize: "11px", color: "#3f3f46", marginRight: "4px" }}>📚</span>
-          {loadedLibros.map((libro) => {
-            const isActive = activeLibros.includes(libro.name);
-            const shortName = libro.name.split(" - ")[0].split("&")[0].trim();
-            return (
-              <button
-                key={libro.name}
-                onClick={() => toggleLibro(libro.name)}
-                title={`${libro.name} · ${libro.pages} págs · ${isActive ? "Click para desactivar" : "Click para activar"}`}
-                style={{
-                  padding: "3px 10px", borderRadius: "100px", fontSize: "11px", fontWeight: 500,
-                  border: "1px solid", cursor: "pointer", transition: "all 0.2s",
-                  background: isActive ? "rgba(255,255,255,0.06)" : "transparent",
-                  borderColor: isActive ? "rgba(255,255,255,0.12)" : "rgba(255,255,255,0.04)",
-                  color: isActive ? "#a1a1aa" : "#3f3f46",
-                  textDecoration: isActive ? "none" : "line-through",
-                }}
-              >
-                {shortName}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <div style={{ padding: "8px 20px", borderBottom: "1px solid rgba(255,255,255,0.04)", display: "flex", alignItems: "center", gap: "6px", flexShrink: 0, flexWrap: "wrap" }}>
+        {loadedLibros.map((libro) => (
+          <button key={libro.name} onClick={() => toggleLibro(libro.name)} style={{ padding: "3px 10px", borderRadius: "100px", fontSize: "11px", border: "1px solid", cursor: "pointer", background: activeLibros.includes(libro.name) ? "rgba(255,255,255,0.06)" : "transparent", color: activeLibros.includes(libro.name) ? "#a1a1aa" : "#3f3f46" }}>
+            {libro.name.split(" - ")[0]}
+          </button>
+        ))}
+      </div>
 
       {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 0" }}>
         <div style={{ maxWidth: "760px", margin: "0 auto", padding: "0 20px" }}>
           {messages.map((msg, i) => (
-            <div key={i} style={{
-              display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
-              marginBottom: "16px",
-            }}>
-              {msg.role === "assistant" && (
-                <div style={{
-                  width: "28px", height: "28px", borderRadius: "8px", background: colors.gradient,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: "12px", fontWeight: 700, color: "white", flexShrink: 0, marginRight: "10px", marginTop: "2px",
-                }}>M</div>
-              )}
-              <div
-                onClick={msg.role === "assistant" ? handleMessageClick : undefined}
-                style={{
-                  maxWidth: "85%", padding: msg.role === "user" ? "10px 16px" : "0",
-                  borderRadius: msg.role === "user" ? "16px 16px 4px 16px" : "0",
-                  background: msg.role === "user" ? "rgba(255,255,255,0.08)" : "transparent",
-                  border: msg.role === "user" ? "1px solid rgba(255,255,255,0.06)" : "none",
-                  color: msg.role === "user" ? "#e4e4e7" : "#a1a1aa",
-                  fontSize: "14px", lineHeight: "1.7", whiteSpace: "pre-wrap",
-                }}
-              >
-                <div dangerouslySetInnerHTML={{
-                  __html: msg.role === "assistant" ? formatMessageWithCitations(msg.content, i) : formatMessage(msg.content),
-                }} />
+            <div key={i} ref={i === lastUserIndex ? latestQuestionRef : null} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start", marginBottom: "16px", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
+              <div style={{ display: "flex", maxWidth: "100%" }}>
+                {msg.role === "assistant" && <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", color: "white", flexShrink: 0, marginRight: "10px" }}>M</div>}
+                <div onClick={msg.role === "assistant" ? handleMessageClick : undefined} style={{ maxWidth: "85%", background: msg.role === "user" ? "rgba(255,255,255,0.08)" : "transparent", padding: msg.role === "user" ? "10px 16px" : "0", borderRadius: "16px", color: "#a1a1aa", fontSize: "14px", lineHeight: "1.7", whiteSpace: "pre-wrap" }}>
+                  <div dangerouslySetInnerHTML={{ __html: msg.role === "assistant" ? formatMessageWithCitations(msg.content, i) : formatMessage(msg.content) }} />
+                </div>
               </div>
+              {msg.role === "assistant" && <div style={{ marginTop: "20px", marginLeft: "38px", maxWidth: "480px", width: "100%" }}><RotatingFunFact index={i} /></div>}
             </div>
           ))}
-
-          {isLoading && (
-            <div style={{ display: "flex", alignItems: "flex-start", marginBottom: "16px" }}>
-              <div style={{
-                width: "28px", height: "28px", borderRadius: "8px", background: colors.gradient,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: "12px", fontWeight: 700, color: "white", flexShrink: 0, marginRight: "10px", marginTop: "2px",
-              }}>M</div>
-              <div style={{ maxWidth: "480px" }}>
-                <div style={{ display: "flex", gap: "6px", marginBottom: "12px" }}>
-                  <div className="dot-bounce-1" style={{ background: colors.accent }} />
-                  <div className="dot-bounce-2" style={{ background: colors.accent }} />
-                  <div className="dot-bounce-3" style={{ background: colors.accent }} />
-                </div>
-                <div style={{
-                  padding: "14px 16px", borderRadius: "12px",
-                  background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)",
-                }}>
-                  <div style={{ fontSize: "10px", color: "#52525b", textTransform: "uppercase", letterSpacing: "1.5px", fontWeight: 600, marginBottom: "8px" }}>
-                    ¿Sabías que?
-                  </div>
-                  <div style={{ fontSize: "13px", color: "#a1a1aa", lineHeight: "1.6" }}>
-                    {funFact}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
           <div ref={messagesEndRef} />
         </div>
       </div>
 
       {/* Input */}
-      <div style={{ padding: "16px 20px 20px", flexShrink: 0, borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-        <div style={{ maxWidth: "760px", margin: "0 auto" }}>
-          <div style={{
-            display: "flex", alignItems: "flex-end", gap: "10px",
-            background: "#18181b", border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: "14px", padding: "6px 6px 6px 18px",
-          }}>
-            <textarea
-              ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown}
-              placeholder={`Preguntá sobre ${materia.name}...`} rows={1}
-              style={{
-                flex: 1, background: "transparent", color: "#e4e4e7", fontSize: "14px",
-                resize: "none", outline: "none", padding: "8px 0", maxHeight: "120px",
-                border: "none", caretColor: "#e4e4e7", fontFamily: "'DM Sans', sans-serif", lineHeight: "1.5",
-              }}
-              onInput={(e) => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px"; }}
-            />
-            <button onClick={sendMessage} disabled={!input.trim() || isLoading}
-              style={{
-                width: "36px", height: "36px", borderRadius: "10px",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: "16px", flexShrink: 0, border: "none", cursor: input.trim() && !isLoading ? "pointer" : "default",
-                background: input.trim() && !isLoading ? colors.gradient : "rgba(255,255,255,0.04)",
-                color: input.trim() && !isLoading ? "white" : "#3f3f46", transition: "all 0.2s",
-              }}
-            >↑</button>
-          </div>
-          <p style={{ textAlign: "center", fontSize: "11px", color: "#3f3f46", marginTop: "10px" }}>
-            Hacé click en las citas 📖 para ver la página original del libro
-          </p>
+      <div style={{ padding: "16px 20px 20px", flexShrink: 0 }}>
+        <div style={{ maxWidth: "760px", margin: "0 auto", background: "#18181b", borderRadius: "14px", padding: "6px 18px", display: "flex", alignItems: "center" }}>
+          <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Haz una pregunta..." style={{ flex: 1, background: "transparent", color: "#e4e4e7", border: "none", outline: "none", resize: "none" }} rows={1} />
+          <button onClick={sendMessage} style={{ background: colors.gradient, color: "white", border: "none", borderRadius: "8px", padding: "8px 12px", cursor: "pointer" }}>↑</button>
         </div>
       </div>
 
-      {/* Modal PDF */}
+      {/* 🟢 MODAL PDF CON RECORTE DE PÁGINA ÚNICA Y PANEL LATERAL */}
       {pageModal && (
-        <div
-          style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.92)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
-          onClick={() => setPageModal(null)}
-        >
-          <div
-            style={{ backgroundColor: "#111113", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "16px", maxWidth: "1200px", width: "100%", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 25px 50px rgba(0,0,0,0.5)" }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ padding: "14px 24px", borderBottom: "1px solid rgba(255,255,255,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <div style={{ width: "28px", height: "28px", borderRadius: "7px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", color: "white" }}>📖</div>
-                <div>
-                  <div style={{ fontSize: "14px", fontWeight: 600, color: "#e4e4e7" }}>{pageModal.libro.split(" - ")[0]}</div>
-                  <div style={{ fontSize: "12px", color: colors.accent }}>Página {pageModal.page}</div>
-                </div>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.95)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={() => setPageModal(null)}>
+          <div style={{ background: "#111113", borderRadius: "16px", width: "100%", maxWidth: "1400px", height: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }} onClick={e => e.stopPropagation()}>
+            
+            <div style={{ padding: "16px 24px", borderBottom: "1px solid #27272a", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#161618" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                 <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: "bold" }}>📖</div>
+                 <div>
+                    <div style={{ color: "white", fontSize: "15px", fontWeight: "600" }}>{pageModal.libro}</div>
+                    <div style={{ color: colors.accent, fontSize: "12px" }}>Página {pageModal.page}</div>
+                 </div>
               </div>
-              <button onClick={() => setPageModal(null)}
-                style={{ color: "#52525b", fontSize: "18px", background: "rgba(255,255,255,0.04)", border: "none", cursor: "pointer", padding: "6px 10px", borderRadius: "8px" }}
-              >✕</button>
+              <button onClick={() => setPageModal(null)} style={{ color: "#a1a1aa", background: "rgba(255,255,255,0.05)", border: "none", width: "32px", height: "32px", borderRadius: "8px", cursor: "pointer" }}>✕</button>
             </div>
 
             <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-              <div style={{ flex: 1, overflow: "hidden" }}>
-                <iframe src={pageModal.pdfUrl} style={{ width: "100%", height: "100%", border: "none", minHeight: "70vh" }}
-                  title={`${pageModal.libro} - Página ${pageModal.page}`} />
+              {/* Visor PDF (Lado Izquierdo) */}
+              <div style={{ flex: 1, background: "#000", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {pageModal.pdfUrl === null && (
+                  <div style={{ color: "#52525b", fontSize: "14px", textAlign: "center" }}>
+                    <div style={{ fontSize: "28px", marginBottom: "12px", animation: "spin 1s linear infinite" }}>⏳</div>
+                    Obteniendo acceso al libro...
+                  </div>
+                )}
+                {pageModal.pdfUrl === "error" && (
+                  <div style={{ color: "#ef4444", fontSize: "14px", textAlign: "center" }}>
+                    No se pudo cargar el PDF.<br/>
+                    <span style={{ color: "#52525b", fontSize: "12px" }}>Verificá que el libro esté subido correctamente.</span>
+                  </div>
+                )}
+                {pageModal.pdfUrl && pageModal.pdfUrl !== "error" && (
+                  <iframe
+                    key={pageModal.pdfUrl}
+                    src={pageModal.pdfUrl}
+                    style={{ width: "100%", height: "100%", border: "none", position: "absolute", inset: 0 }}
+                  />
+                )}
               </div>
 
-              {pageModal.fragmentText && (
-                <div style={{ width: "300px", borderLeft: "1px solid rgba(255,255,255,0.06)", overflow: "auto", flexShrink: 0, display: "flex", flexDirection: "column" }}>
-                  <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                      <div style={{ width: "10px", height: "10px", backgroundColor: "rgba(250,204,21,0.5)", borderRadius: "3px" }} />
-                      <span style={{ color: "#facc15", fontSize: "12px", fontWeight: 600 }}>Información utilizada</span>
-                    </div>
-                    <p style={{ color: "#52525b", fontSize: "11px", lineHeight: "1.4", margin: 0 }}>Texto que el tutor usó de esta página</p>
+              {/* Panel Lateral de Texto Extraído (Lado Derecho) */}
+              <div style={{ width: "340px", background: "#161618", borderLeft: "1px solid #27272a", display: "flex", flexDirection: "column" }}>
+                <div style={{ padding: "20px", borderBottom: "1px solid #27272a" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
+                    <span style={{ fontSize: "14px" }}>🔍</span>
+                    <span style={{ color: "white", fontSize: "13px", fontWeight: "600" }}>TEXTO DE ESTA PÁGINA</span>
                   </div>
-                  <div style={{ padding: "10px 12px", overflow: "auto", flex: 1 }}>
-                    {getRelevantSentences(pageModal.fragmentText).map((sentence, idx) => (
-                      <div key={idx} style={{
-                        padding: "10px 12px", marginBottom: "6px",
-                        backgroundColor: "rgba(250,204,21,0.05)", borderLeft: "2px solid rgba(250,204,21,0.4)",
-                        borderRadius: "0 8px 8px 0", color: "#d4d4d8", fontSize: "12px", lineHeight: "1.6",
-                        userSelect: "text", cursor: "text",
-                      }}>{sentence}</div>
-                    ))}
-                  </div>
-                  <div style={{ padding: "10px 12px", borderTop: "1px solid rgba(255,255,255,0.06)", flexShrink: 0 }}>
-                    <button onClick={() => navigator.clipboard.writeText(getRelevantSentences(pageModal.fragmentText).join("\n\n"))}
-                      style={{
-                        width: "100%", padding: "8px", borderRadius: "8px", fontSize: "12px",
-                        cursor: "pointer", border: "1px solid rgba(255,255,255,0.08)",
-                        backgroundColor: "rgba(255,255,255,0.03)", color: "#a1a1aa",
-                      }}
-                    >📋 Copiar texto</button>
-                  </div>
+                  <p style={{ color: "#52525b", fontSize: "11px" }}>Fragmento clave analizado por el tutor:</p>
                 </div>
-              )}
-            </div>
 
-            <div style={{ padding: "10px 24px", borderTop: "1px solid rgba(255,255,255,0.06)", fontSize: "11px", color: "#3f3f46", flexShrink: 0 }}>
-              {pageModal.libro} — Página {pageModal.page} · Podés seleccionar y copiar texto del PDF
+                <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
+                  {pageModal.fragmentText ? (
+                    getRelevantSentences(pageModal.fragmentText).map((sentence, idx) => (
+                      <div key={idx} style={{ 
+                        padding: "12px", borderRadius: "8px", background: "rgba(255,255,255,0.02)", 
+                        borderLeft: `3px solid ${colors.accent}`, marginBottom: "12px",
+                        color: "#d4d4d8", fontSize: "12.5px", lineHeight: "1.6"
+                      }}>
+                        {sentence}
+                      </div>
+                    ))
+                  ) : (
+                    <div style={{ color: "#3f3f46", fontSize: "12px", textAlign: "center", marginTop: "40px" }}>No hay fragmentos disponibles.</div>
+                  )}
+                </div>
+
+                <div style={{ padding: "16px", borderTop: "1px solid #27272a" }}>
+                  <button onClick={() => {
+                      navigator.clipboard.writeText(pageModal.fragmentText);
+                      alert("Texto copiado al portapapeles");
+                  }} style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#e4e4e7", cursor: "pointer", fontSize: "12px" }}>
+                    📋 Copiar fragmento completo
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -431,17 +393,9 @@ function ChatContent() {
 }
 
 export default function ChatPage() {
-  return (
-    <Suspense fallback={
-      <div style={{ minHeight: "100vh", background: "#0a0a0c", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ color: "#71717a" }}>Cargando...</div>
-      </div>
-    }>
-      <ChatContent />
-    </Suspense>
-  );
+  return <Suspense fallback={<div>Cargando...</div>}><ChatContent /></Suspense>;
 }
 
 function formatMessage(text) {
-  return text.replace(/\*\*(.*?)\*\*/g, "<strong style='color:#fafafa'>$1</strong>").replace(/\n/g, "<br/>");
+  return text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br/>");
 }

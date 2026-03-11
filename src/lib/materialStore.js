@@ -299,3 +299,32 @@ export function deleteMaterial(year, materiaKey) {
   }
   return false;
 }
+
+// ============================================================
+// BORRAR UN LIBRO ESPECÍFICO (Y SUS FRAGMENTOS)
+// ============================================================
+
+export function deleteMaterialWithPages(year, materiaKey, libroName) {
+  const filePath = getMateriaPath(year, materiaKey);
+
+  if (!fs.existsSync(filePath)) {
+    return false; // El archivo de la materia no existe
+  }
+
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const data = JSON.parse(raw);
+
+  // Filtramos para quedarnos con todos los fragmentos MENOS los del libro que queremos borrar
+  const initialLength = data.fragments.length;
+  data.fragments = data.fragments.filter((f) => f.libro !== libroName);
+  const finalLength = data.fragments.length;
+
+  // Si no se borró nada, devolvemos false
+  if (initialLength === finalLength) {
+    return false;
+  }
+
+  // Guardamos el JSON actualizado
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+  return true;
+}
