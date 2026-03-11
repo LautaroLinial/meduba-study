@@ -1,22 +1,11 @@
 // ============================================================
 // API ROUTE - /api/page
-// Genera una URL firmada de R2 para que el navegador descargue
-// el PDF directamente (sin pasar por el servidor).
-// Respuesta instantánea (~100ms) sin importar el tamaño del libro.
+// Devuelve la URL pública de R2 para mostrar el PDF en el iframe.
+// Usa NEXT_PUBLIC_R2_URL (dominio público de Cloudflare) que no
+// tiene restricciones CORS y funciona perfecto en iframes.
 // ============================================================
 
 import { NextResponse } from "next/server";
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-
-const s3Client = new S3Client({
-  region: "auto",
-  endpoint: process.env.R2_ENDPOINT,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-  },
-});
 
 function safeFileName(libro) {
   return libro
@@ -40,16 +29,14 @@ export async function GET(request) {
 
     const libroSafe = safeFileName(libro);
     const pdfKey = `${year}_${materia}_${libroSafe}.pdf`;
+    const baseUrl = process.env.NEXT_PUBLIC_R2_URL?.replace(/\/$/, "");
 
-    // Generar URL firmada válida por 1 hora.
-    // El navegador descarga el PDF directo desde R2 usando range requests,
-    // así solo baja los bytes de la página que necesita.
-    const command = new GetObjectCommand({
-      Bucket: process.env.R2_BUCKET_NAME,
-      Key: pdfKey,
-    });
+    if (!baseUrl) {
+      return NextResponse.json({ error: "NEXT_PUBLIC_R2_URL no configurada" }, { status: 500 });
+    }
 
-    const signedUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
+    // URL pública directa — sin CORS, funciona en iframe, soporta range requests
+    const signedUrl = `${baseUrl}/${pdfKey}`;
 
     return NextResponse.json({ signedUrl, page: parseInt(pageStr, 10) });
   } catch (error) {
