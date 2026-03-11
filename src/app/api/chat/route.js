@@ -1,9 +1,7 @@
 // ============================================================
-// API ROUTE - /api/chat
-// BÚSQUEDA HÍBRIDA con filtro por libros activos
+// API ROUTE - /api/chat (STREAMING + FIX DE HISTORIAL)
 // ============================================================
 
-import { NextResponse } from "next/server";
 import { buildSystemPrompt, buildQueryPrompt } from "@/lib/systemPrompt";
 import { getMateria, CURRICULUM, getAllLibros } from "@/lib/curriculum";
 import { searchMaterial } from "@/lib/materialStore";
@@ -11,22 +9,23 @@ import { semanticSearch, hasEmbeddings } from "@/lib/embeddings";
 import fs from "fs";
 import path from "path";
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request) {
   try {
     const { message, year, materia: materiaKey, history, activeLibros } = await request.json();
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: "API key no configurada." }, { status: 500 });
+      return new Response(JSON.stringify({ error: "API key no configurada." }), { status: 500 });
     }
 
     const materia = getMateria(year, materiaKey);
     if (!materia) {
-      return NextResponse.json({ error: "Materia no encontrada" }, { status: 400 });
+      return new Response(JSON.stringify({ error: "Materia no encontrada" }), { status: 400 });
     }
 
     const yearData = CURRICULUM[year];
-
     const materialesPath = path.join(process.cwd(), "data", "materiales", `${year}_${materiaKey}.json`);
     let allFragments = [];
     if (fs.existsSync(materialesPath)) {
@@ -34,65 +33,34 @@ export async function POST(request) {
       allFragments = JSON.parse(raw).fragments || [];
     }
 
-    // Filtrar fragmentos por libros activos si se especificaron
     if (activeLibros && activeLibros.length > 0) {
       allFragments = allFragments.filter(f => activeLibros.includes(f.libro));
     }
 
-    // Limpiar query
     const stopWords = ["que", "es", "el", "la", "los", "las", "un", "una", "de", "del", "en", "por", "para", "como", "donde", "cual", "cuales", "me", "te", "se", "con", "sin", "sobre", "entre", "hacia", "desde", "hay", "son", "tiene", "puede", "hacer", "ser", "estar", "tener", "haber", "esto", "esta", "estos", "estas", "ese", "esa", "esos", "esas", "aquel", "aquella", "describí", "describi", "describime", "explicame", "explica", "contame", "decime", "qué", "cómo", "cuál", "dónde", "quiero", "saber", "conocer"];
     
-    const queryWords = message
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[?¿!¡.,;:]/g, "")
-      .split(/\s+/)
-      .filter(w => w.length > 2 && !stopWords.includes(w));
-    
+    const queryWords = message.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[?¿!¡.,;:]/g, "").split(/\s+/).filter(w => w.length > 2 && !stopWords.includes(w));
     const queryPhrase = queryWords.join(" ");
-    console.log("Query:", message);
-    console.log("Palabras clave:", queryWords);
-    if (activeLibros) console.log("Libros activos:", activeLibros);
 
-    // Búsqueda exacta
-    const exactMatches = allFragments
-      .filter(f => {
+    const exactMatches = allFragments.filter(f => {
         const textLower = f.text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
-        const allWordsMatch = queryWords.every(w => textLower.includes(w));
-        const phraseMatch = textLower.includes(queryPhrase);
-        return allWordsMatch || phraseMatch;
-      })
-      .map(f => {
-        const textLower = f.text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
-        const phraseMatch = textLower.includes(queryPhrase);
-        return { id: f.id, page: f.page, libro: f.libro, score: phraseMatch ? 100 : 70 };
-      });
+        return queryWords.every(w => textLower.includes(w)) || textLower.includes(queryPhrase);
+      }).map(f => ({ id: f.id, page: f.page, libro: f.libro, score: f.text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").includes(queryPhrase) ? 100 : 70 }));
 
-    // Búsqueda en títulos
-    const titleMatches = allFragments
-      .filter(f => {
+    const titleMatches = allFragments.filter(f => {
         const lines = f.text.split("\n").slice(0, 5);
         return lines.some(line => {
           const lineLower = line.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
           return queryWords.every(w => lineLower.includes(w)) && line.length < 200;
         });
-      })
-      .map(f => ({ id: f.id, page: f.page, libro: f.libro, score: 80 }));
+      }).map(f => ({ id: f.id, page: f.page, libro: f.libro, score: 80 }));
 
-    // Keywords
     const keywordResults = searchMaterial(year, materiaKey, message);
-    // Filtrar keywords por libros activos
-    const filteredKeywords = activeLibros && activeLibros.length > 0
-      ? keywordResults.filter(f => activeLibros.includes(f.libro))
-      : keywordResults;
+    const filteredKeywords = activeLibros && activeLibros.length > 0 ? keywordResults.filter(f => activeLibros.includes(f.libro)) : keywordResults;
 
-    // Semántica
     let semanticResults = [];
     if (hasEmbeddings(year, materiaKey)) {
-      console.log("Búsqueda híbrida: keywords + semántica");
       semanticResults = await semanticSearch(year, materiaKey, message, 15);
-      // Filtrar semántica por libros activos
       if (activeLibros && activeLibros.length > 0) {
         semanticResults = semanticResults.filter(r => {
           const frag = allFragments.find(f => f.id === r.id);
@@ -101,61 +69,39 @@ export async function POST(request) {
       }
     }
 
-    // Combinar y rankear
     const scoreMap = new Map();
-
-    exactMatches.forEach(r => {
+    [...exactMatches, ...titleMatches].forEach(r => {
       const current = scoreMap.get(r.id) || { id: r.id, page: r.page, libro: r.libro, score: 0 };
       current.score += r.score;
       scoreMap.set(r.id, current);
     });
-
-    titleMatches.forEach(r => {
-      const current = scoreMap.get(r.id) || { id: r.id, page: r.page, libro: r.libro, score: 0 };
-      current.score += 80;
-      scoreMap.set(r.id, current);
-    });
-
     filteredKeywords.forEach((r, i) => {
       const current = scoreMap.get(r.id) || { id: r.id, page: r.page, libro: r.libro, score: 0 };
       current.score += 50 - (i * 5);
       scoreMap.set(r.id, current);
     });
-
     semanticResults.forEach((r) => {
       const current = scoreMap.get(r.id) || { id: r.id, page: r.page, libro: r.libro, score: 0 };
       current.score += 30 * r.score;
       scoreMap.set(r.id, current);
     });
 
-    const rankedIds = Array.from(scoreMap.values())
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 10);
+    const rankedIds = Array.from(scoreMap.values()).sort((a, b) => b.score - a.score).slice(0, 6);
 
-    const relevantFragments = rankedIds
-      .map(r => {
+    const relevantFragments = rankedIds.map(r => {
         const frag = allFragments.find(f => f.id === r.id);
-        if (frag) return { ...frag, combinedScore: r.score };
-        return null;
-      })
-      .filter(Boolean);
+        return frag ? { ...frag, combinedScore: r.score } : null;
+      }).filter(Boolean);
 
-    console.log("Fragmentos:", relevantFragments.map(f => `pag ${f.page} (${f.combinedScore.toFixed(1)})`).join(", "));
-
-    // Construir contexto
     let materialContext = "";
     if (relevantFragments.length > 0) {
-      materialContext = relevantFragments
-        .map((f, i) => {
+      materialContext = relevantFragments.map((f, i) => {
           const pageInfo = f.page ? ` (Página ${f.page})` : "";
           return `--- Fragmento ${i + 1}: ${f.libro}${pageInfo} [ID:${f.id}] ---\n${f.text.substring(0, 1500)}`;
-        })
-        .join("\n\n");
+        }).join("\n\n");
     }
 
-    // Usar todos los libros de todas las cátedras para el prompt
     const allLibros = getAllLibros(year, materiaKey);
-
     const systemPrompt = buildSystemPrompt({
       materia: materia.name,
       año: yearData.name,
@@ -163,17 +109,35 @@ export async function POST(request) {
       material: materialContext,
     });
 
-    const claudeMessages = [];
-    if (history && history.length > 0) {
-      history.forEach((msg) => {
-        claudeMessages.push({ role: msg.role, content: msg.content });
-      });
+    // 🔴 NUEVO FIX: Historial perfecto para Anthropic
+    const rawHistory = history ? history.map(msg => ({ role: msg.role, content: msg.content })) : [];
+    const validHistory = [];
+    
+    // Esperamos que el último mensaje anterior haya sido del asistente, para alternar bien
+    let expectedRole = "assistant"; 
+
+    // Recorremos de atrás para adelante para armar la cadena perfecta
+    for (let i = rawHistory.length - 1; i >= 0; i--) {
+      const msg = rawHistory[i];
+      // Ignorar mensajes vacíos que hacen enojar a la API
+      if (!msg.content || msg.content.trim() === "") continue; 
+      
+      if (msg.role === expectedRole) {
+        validHistory.unshift(msg); // Lo ponemos al principio
+        expectedRole = expectedRole === "assistant" ? "user" : "assistant";
+      }
     }
 
-    claudeMessages.push({
-      role: "user",
-      content: buildQueryPrompt(message, materialContext),
-    });
+    const claudeMessages = [...validHistory];
+    
+    // Finalmente, añadimos la nueva pregunta del usuario
+    claudeMessages.push({ role: "user", content: buildQueryPrompt(message, materialContext) });
+
+    const usedFragments = relevantFragments.map((f) => ({
+      page: f.page,
+      libro: f.libro,
+      text: f.text.substring(0, 1500),
+    }));
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -183,43 +147,65 @@ export async function POST(request) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 4096,
         system: systemPrompt,
         messages: claudeMessages,
+        stream: true,
       }),
     });
 
+    // Mejor manejo de errores por si falla la API
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error("Error de API de Claude:", errorData);
-      return NextResponse.json(
-        { error: `Error de la API: ${response.status}`, details: errorData },
-        { status: response.status }
-      );
+      const errorText = await response.text();
+      console.error("Error de la API de Anthropic:", errorText);
+      return new Response(JSON.stringify({ error: `Error API: ${response.status}`, details: errorText }), { status: response.status });
     }
 
-    const data = await response.json();
+    const stream = new ReadableStream({
+      async start(controller) {
+        const metadata = JSON.stringify({ type: 'metadata', usedFragments });
+        controller.enqueue(new TextEncoder().encode(metadata + '\n\n---\n\n'));
 
-    const responseText = data.content
-      .filter((block) => block.type === "text")
-      .map((block) => block.text)
-      .join("\n");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n').filter(line => line.trim() !== '');
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const dataStr = line.replace('data: ', '');
+              if (dataStr === '[DONE]') continue;
+              
+              try {
+                const data = JSON.parse(dataStr);
+                if (data.type === 'content_block_delta' && data.delta.text) {
+                  controller.enqueue(new TextEncoder().encode(data.delta.text));
+                }
+              } catch (e) {
+                // Silenciar errores de parseo intermedios
+              }
+            }
+          }
+        }
+        controller.close();
+      }
+    });
 
-    const usedFragments = relevantFragments.map((f) => ({
-      page: f.page,
-      libro: f.libro,
-      text: f.text.substring(0, 1500),
-    }));
-
-    return NextResponse.json({
-      response: responseText,
-      sources: [],
-      usedFragments: usedFragments,
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Transfer-Encoding': 'chunked',
+      },
     });
 
   } catch (error) {
-    console.error("Error en /api/chat:", error);
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 });
+    console.error("Error fatal en /api/chat:", error);
+    return new Response(JSON.stringify({ error: "Error interno del servidor", details: error.message }), { status: 500 });
   }
 }
