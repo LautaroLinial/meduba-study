@@ -138,15 +138,15 @@ function ChatContent() {
     ) || libro;
 
     // Mostrar modal de carga inmediatamente
-    setPageModal({ libro: libroCompleto, page, pdfUrl: null, fragmentText: fragmentText || "" });
+    setPageModal({ libro: libroCompleto, page, imageUrl: null, fragmentText: fragmentText || "" });
 
     try {
-      const params = new URLSearchParams({ year, materia: materiaKey, libro: libroCompleto });
-      const res = await fetch(`/api/page?${params}`);
+      const params = new URLSearchParams({ year, materia: materiaKey, libro: libroCompleto, page: page.toString() });
+      const res = await fetch(`/api/render-page?${params}`);
       const data = await res.json();
-      setPageModal({ libro: libroCompleto, page, pdfUrl: data.url, fragmentText: fragmentText || "" });
+      setPageModal({ libro: libroCompleto, page, imageUrl: data.imageUrl || "error", fragmentText: fragmentText || "" });
     } catch {
-      setPageModal({ libro: libroCompleto, page, pdfUrl: "error", fragmentText: fragmentText || "" });
+      setPageModal({ libro: libroCompleto, page, imageUrl: "error", fragmentText: fragmentText || "" });
     }
   }, [year, materiaKey, loadedLibros]);
 
@@ -327,21 +327,13 @@ function ChatContent() {
             </div>
 
             <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-              {/* Visor PDF con pdf.js — solo descarga la página citada */}
+              {/* Visor PDF — imagen renderizada en el servidor por mupdf */}
               <div style={{ flex: 1, background: "#111", position: "relative", overflow: "hidden" }}>
-                {pageModal.pdfUrl === "error" ? (
-                  <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#ef4444", fontSize: "14px", textAlign: "center" }}>
-                    No se pudo cargar la página.<br/>
-                    <span style={{ color: "#52525b", fontSize: "12px" }}>Verificá que el libro esté subido correctamente.</span>
-                  </div>
-                ) : (
-                  <PdfPageViewer
-                    key={`${pageModal.pdfUrl}-${pageModal.page}`}
-                    url={pageModal.pdfUrl}
-                    pageNumber={pageModal.page}
-                    accentColor={colors.accent}
-                  />
-                )}
+                <PdfPageViewer
+                  key={`${pageModal.libro}-${pageModal.page}`}
+                  imageUrl={pageModal.imageUrl}
+                  accentColor={colors.accent}
+                />
               </div>
 
               {/* Panel Lateral de Texto Extraído (Lado Derecho) */}

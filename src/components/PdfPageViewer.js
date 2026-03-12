@@ -1,145 +1,96 @@
 "use client";
 // ============================================================
-// PDF PAGE VIEWER
-// Renderiza UNA página de PDF en el navegador usando pdf.js.
-// - Range requests: solo descarga los bytes de esa página (~200KB)
-// - Capa de texto: podés seleccionar y copiar texto
-// - Sin carga al servidor: R2 sirve el PDF directo al browser
+// PDF PAGE VIEWER (v2 — Server-Side Render + R2 Cache)
+//
+// El servidor pre-renderiza la página con mupdf y la guarda
+// como JPEG en R2. Este componente simplemente muestra la imagen.
+//
+// - Primera apertura: servidor renderiza (~5-30s, una sola vez)
+// - Aperturas siguientes: imagen desde CDN (<500ms) ⚡
+// - Sin pdf.js, sin range requests, sin CORS
 // ============================================================
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
-export default function PdfPageViewer({ url, pageNumber, accentColor = "#3b82f6" }) {
-  const wrapperRef  = useRef(null);
-  const [status, setStatus]   = useState("loading");
-  const [pageSize, setPageSize] = useState({ w: 0, h: 0 });
+export default function PdfPageViewer({ imageUrl, accentColor = "#3b82f6" }) {
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [imgError,  setImgError]  = useState(false);
 
-  useEffect(() => {
-    if (!url || !pageNumber) return;
-    let cancelled = false;
-    setStatus("loading");
+  // Estado: esperando que el servidor renderice/devuelva la URL
+  if (!imageUrl) {
+    return (
+      <div style={styles.center}>
+        <div style={{ textAlign: "center", color: "#52525b" }}>
+          <div style={{ fontSize: "32px", marginBottom: "12px" }}>⏳</div>
+          <div style={{ fontSize: "13px", color: "#71717a" }}>Preparando imagen de la página...</div>
+          <div style={{ fontSize: "11px", color: "#3f3f46", marginTop: "6px" }}>
+            La primera vez puede tardar unos segundos
+          </div>
+        </div>
+      </div>
+    );
+  }
 
-    async function renderPage() {
-      try {
-        // Importación dinámica — no se bundlea hasta que se abre el modal
-        const pdfjsLib = await import("pdfjs-dist/build/pdf.mjs");
-
-        // Worker local (en /public) para evitar dependencias de CDN y problemas de bundling
-        pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-
-        // getDocument hace range requests: descarga solo lo necesario
-        const pdfDoc = await pdfjsLib.getDocument({
-          url,
-          rangeChunkSize: 65536,   // 64KB por chunk
-          disableAutoFetch: true,  // Solo pide bytes cuando los necesita
-          disableStream: false,
-        }).promise;
-
-        if (cancelled) return;
-
-        const page = await pdfDoc.getPage(pageNumber);
-        if (cancelled) return;
-
-        const scale    = Math.min(1.6, (window.innerWidth * 0.55) / page.getViewport({ scale: 1 }).width);
-        const viewport = page.getViewport({ scale });
-
-        if (cancelled) return;
-
-        const wrapper = wrapperRef.current;
-        if (!wrapper) return;
-        wrapper.innerHTML = "";
-        setPageSize({ w: viewport.width, h: viewport.height });
-
-        // ── Canvas (imagen de la página) ────────────────────────────────
-        const canvas    = document.createElement("canvas");
-        const ctx       = canvas.getContext("2d");
-        canvas.width    = viewport.width;
-        canvas.height   = viewport.height;
-        canvas.style.display = "block";
-        wrapper.appendChild(canvas);
-
-        await page.render({ canvasContext: ctx, viewport }).promise;
-        if (cancelled) return;
-
-        // ── Capa de texto (seleccionar / copiar) ────────────────────────
-        const textDiv = document.createElement("div");
-        textDiv.style.cssText = `
-          position: absolute; top: 0; left: 0;
-          width: ${viewport.width}px; height: ${viewport.height}px;
-          overflow: hidden; pointer-events: auto;
-        `;
-        wrapper.style.position = "relative";
-        wrapper.appendChild(textDiv);
-
-        // Inyectar CSS de pdf.js para el text layer (solo 1 vez)
-        if (!document.getElementById("pdfjsTextLayerStyle")) {
-          const style = document.createElement("style");
-          style.id = "pdfjsTextLayerStyle";
-          style.textContent = `
-            .pdfTextLayer { opacity: 0.25; mix-blend-mode: multiply; }
-            .pdfTextLayer span {
-              color: transparent; position: absolute; white-space: pre;
-              cursor: text; transform-origin: 0% 0%;
-            }
-            .pdfTextLayer ::selection { background: rgba(0,100,255,0.35); }
-          `;
-          document.head.appendChild(style);
-        }
-        textDiv.className = "pdfTextLayer";
-
-        const textContent = await page.getTextContent();
-        if (cancelled) return;
-
-        // pdfjs-dist v4: usa la clase TextLayer
-        // pdfjs-dist v3 y anteriores: usa renderTextLayer
-        if (pdfjsLib.TextLayer) {
-          const textLayer = new pdfjsLib.TextLayer({
-            textContentSource: textContent,
-            container: textDiv,
-            viewport,
-          });
-          await textLayer.render();
-        } else if (pdfjsLib.renderTextLayer) {
-          pdfjsLib.renderTextLayer({ textContentSource: textContent, container: textDiv, viewport });
-        }
-
-        if (cancelled) return;
-        setStatus("ready");
-      } catch (err) {
-        if (!cancelled) {
-          console.error("PdfPageViewer error:", err);
-          setStatus("error");
-        }
-      }
-    }
-
-    renderPage();
-    return () => { cancelled = true; };
-  }, [url, pageNumber]);
+  // Estado: error del servidor (no encontró el PDF, etc.)
+  if (imageUrl === "error") {
+    return (
+      <div style={styles.center}>
+        <div style={{ textAlign: "center", color: "#ef4444", fontSize: "14px" }}>
+          No se pudo cargar la página.<br />
+          <span style={{ color: "#52525b", fontSize: "12px" }}>
+            Verificá que el libro esté subido correctamente.
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", overflow: "auto", background: "#111" }}>
-      {status === "loading" && (
-        <div style={{ textAlign: "center", color: "#52525b" }}>
-          <div style={{ fontSize: "32px", marginBottom: "12px" }}>📄</div>
-          <div style={{ fontSize: "13px" }}>Cargando página...</div>
-          <div style={{ fontSize: "11px", color: "#3f3f46", marginTop: "6px" }}>Solo descarga esta página desde la nube</div>
+    <div style={{ ...styles.center, position: "relative" }}>
+      {/* Spinner mientras la imagen carga desde R2 */}
+      {!imgLoaded && !imgError && (
+        <div style={{ position: "absolute", textAlign: "center", color: "#52525b", zIndex: 1 }}>
+          <div style={{ fontSize: "28px", marginBottom: "8px" }}>📄</div>
+          <div style={{ fontSize: "13px" }}>Cargando imagen...</div>
         </div>
       )}
-      {status === "error" && (
+
+      {/* Error al cargar la imagen (URL inválida, red, etc.) */}
+      {imgError && (
         <div style={{ textAlign: "center", color: "#ef4444", fontSize: "14px" }}>
-          No se pudo cargar la página.<br/>
-          <span style={{ color: "#52525b", fontSize: "12px" }}>Verificá que el libro esté subido correctamente.</span>
+          Error al cargar la imagen.<br />
+          <span style={{ color: "#52525b", fontSize: "12px" }}>Cerrá y volvé a abrir.</span>
         </div>
       )}
-      <div
-        ref={wrapperRef}
+
+      {/* Imagen de la página — carga instantáneamente desde R2 CDN */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={imageUrl}
+        alt="Página del libro"
+        onLoad={() => setImgLoaded(true)}
+        onError={() => setImgError(true)}
+        draggable={false}
         style={{
-          display: status === "ready" ? "block" : "none",
+          maxWidth: "100%",
+          maxHeight: "100%",
+          objectFit: "contain",
           boxShadow: "0 4px 32px rgba(0,0,0,0.6)",
           borderRadius: "2px",
-          overflow: "hidden",
+          display: imgLoaded && !imgError ? "block" : "none",
         }}
       />
     </div>
   );
 }
+
+const styles = {
+  center: {
+    width: "100%",
+    height: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "auto",
+    background: "#111",
+  },
+};
