@@ -132,22 +132,19 @@ function ChatContent() {
     });
   };
 
-  const openPage = useCallback(async (libro, page, fragmentText) => {
+  const openPage = useCallback((libro, page, fragmentText) => {
     const libroCompleto = loadedLibros.map(l => l.name).find(l =>
       l.toLowerCase().includes(libro.toLowerCase().split("&")[0].trim().split(" ")[0])
     ) || libro;
 
-    // Mostrar modal de carga inmediatamente
-    setPageModal({ libro: libroCompleto, page, imageUrl: null, fragmentText: fragmentText || "" });
+    // Calcular URL del PDF directo en R2 (sin fetch al servidor)
+    const libroSafe = libroCompleto
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]/g, "_").substring(0, 80);
+    const r2Base = process.env.NEXT_PUBLIC_R2_URL?.replace(/\/$/, "");
+    const pdfUrl = `${r2Base}/${year}_${materiaKey}_${libroSafe}.pdf`;
 
-    try {
-      const params = new URLSearchParams({ year, materia: materiaKey, libro: libroCompleto, page: page.toString() });
-      const res = await fetch(`/api/render-page?${params}`);
-      const data = await res.json();
-      setPageModal({ libro: libroCompleto, page, imageUrl: data.imageUrl || "error", fragmentText: fragmentText || "" });
-    } catch {
-      setPageModal({ libro: libroCompleto, page, imageUrl: "error", fragmentText: fragmentText || "" });
-    }
+    setPageModal({ libro: libroCompleto, page, pdfUrl, fragmentText: fragmentText || "" });
   }, [year, materiaKey, loadedLibros]);
 
   const sendMessage = async () => {
@@ -327,11 +324,12 @@ function ChatContent() {
             </div>
 
             <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-              {/* Visor PDF — imagen renderizada en el servidor por mupdf */}
+              {/* Visor PDF — iframe directo al PDF en R2 (texto copiable) */}
               <div style={{ flex: 1, background: "#111", position: "relative", overflow: "hidden" }}>
                 <PdfPageViewer
                   key={`${pageModal.libro}-${pageModal.page}`}
-                  imageUrl={pageModal.imageUrl}
+                  pdfUrl={pageModal.pdfUrl}
+                  page={pageModal.page}
                   accentColor={colors.accent}
                 />
               </div>

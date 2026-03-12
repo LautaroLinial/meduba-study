@@ -1,5 +1,6 @@
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import * as mupdf from "mupdf";
+import { pdfDocCache } from "@/lib/pdfDocCache";
 
 // ============================================================
 // RENDER-PAGE API
@@ -7,20 +8,19 @@ import * as mupdf from "mupdf";
 // y la guarda como JPEG en R2 para carga instantánea futura.
 //
 // Capas de cache (de más rápida a más lenta):
-//   1. memoryCache (Set)  → imagen ya renderizada en esta sesión → ~0ms
-//   2. R2 HEAD check      → imagen en CDN de otra sesión        → ~1s
-//   3. docCache (Map)     → PDF ya descargado en esta sesión    → ~200ms render
-//   4. Descarga + render  → primera vez, PDF descargado de R2   → lento (1 vez)
+//   1. memoryCache   → imagen ya renderizada en esta sesión        → ~0ms
+//   2. R2 HEAD       → imagen en CDN (cualquier sesión anterior)   → ~1s
+//   3. pdfDocCache   → PDF en memoria (este proceso Node)          → ~2s render+upload
+//   4. Descarga R2   → primera vez que se necesita este PDF        → lento (una sola vez)
+//
+// NOTA: el upload ya carga el doc en pdfDocCache y pre-renderiza
+// todas las páginas en background → capa 4 casi nunca ocurre.
 // ============================================================
 
 export const dynamic = "force-dynamic";
 
-// Cache de imágenes ya renderizadas — evita HEAD request a R2
+// Cache de imágenes renderizadas en esta sesión (evita HEAD a R2)
 const memoryCache = new Set();
-
-// Cache del documento mupdf — evita re-descargar el PDF (163MB) para cada página
-// Clave: pdfKey  |  Valor: { doc: mupdf.Document, totalPages: number }
-const docCache = new Map();
 
 const s3Client = new S3Client({
   region: "auto",
@@ -53,7 +53,6 @@ export async function GET(request) {
   const libroSafe = safeFileName(libro);
   const pdfKey    = `${year}_${materia}_${libroSafe}.pdf`;
   const imageKey  = `cache/${year}_${materia}_${libroSafe}_p${page}.jpg`;
-
   const publicUrl = process.env.NEXT_PUBLIC_R2_URL?.replace(/\/$/, "");
   const imageUrl  = `${publicUrl}/${imageKey}`;
 
@@ -62,7 +61,7 @@ export async function GET(request) {
     return Response.json({ imageUrl, cached: true });
   }
 
-  // ── 2. Cache en R2 (HEAD request ~1s) ─────────────────────────
+  // ── 2. Cache en R2 (~1s HEAD request) ─────────────────────────
   try {
     const cacheCheck = await fetch(imageUrl, { method: "HEAD" });
     if (cacheCheck.ok) {
@@ -70,21 +69,22 @@ export async function GET(request) {
       return Response.json({ imageUrl, cached: true });
     }
   } catch {
-    // Cache miss — continuar con render
+    // Cache miss — continuar
   }
 
-  // ── 3. Obtener documento mupdf (de cache o descargando) ────────
+  // ── 3. Obtener documento mupdf ────────────────────────────────
+  // Primero revisa el cache compartido (cargado por el upload u otro render previo)
   let doc;
   let totalPages;
 
-  if (docCache.has(pdfKey)) {
-    // PDF ya cargado en esta sesión del servidor — solo renderizar (~200ms)
-    ({ doc, totalPages } = docCache.get(pdfKey));
+  if (pdfDocCache.has(pdfKey)) {
+    ({ doc, totalPages } = pdfDocCache.get(pdfKey));
   } else {
-    // Descargar PDF completo desde R2 (lento la primera vez)
+    // ── 4. Descargar PDF completo desde R2 (solo si no está en cache) ──
     const pdfUrl = `${publicUrl}/${pdfKey}`;
     let pdfBuffer;
     try {
+      console.log(`[render-page] Descargando PDF de R2: ${pdfKey}`);
       const pdfResponse = await fetch(pdfUrl);
       if (!pdfResponse.ok) {
         return Response.json(
@@ -103,7 +103,7 @@ export async function GET(request) {
     try {
       doc        = mupdf.Document.openDocument(pdfBuffer, "application/pdf");
       totalPages = doc.countPages();
-      docCache.set(pdfKey, { doc, totalPages });
+      pdfDocCache.set(pdfKey, { doc, totalPages });
     } catch (err) {
       return Response.json(
         { error: "Error abriendo PDF con mupdf: " + err.message },
@@ -112,21 +112,20 @@ export async function GET(request) {
     }
   }
 
-  // ── 4. Renderizar página con mupdf (~200ms) ────────────────────
+  // ── 5. Renderizar página con mupdf (~200ms) ────────────────────
   if (page < 1 || page > totalPages) {
     return Response.json(
-      { error: `Página ${page} fuera de rango (1-${totalPages})` },
+      { error: `Página ${page} fuera de rango (1–${totalPages})` },
       { status: 400 }
     );
   }
 
   let jpegBuffer;
   try {
-    const mupdfPage = doc.loadPage(page - 1); // mupdf usa índice 0
-    // Escala 2.0 ≈ 144 DPI — alta calidad para textos médicos
-    const matrix  = mupdf.Matrix.scale(2.0, 2.0);
-    const pixmap  = mupdfPage.toPixmap(matrix, mupdf.ColorSpace.DeviceRGB, false, true);
-    jpegBuffer    = Buffer.from(pixmap.asJPEG(85, false));
+    const mupdfPage = doc.loadPage(page - 1);
+    const matrix    = mupdf.Matrix.scale(2.0, 2.0);
+    const pixmap    = mupdfPage.toPixmap(matrix, mupdf.ColorSpace.DeviceRGB, false, true);
+    jpegBuffer      = Buffer.from(pixmap.asJPEG(85, false));
   } catch (err) {
     return Response.json(
       { error: "Error renderizando página: " + err.message },
@@ -134,7 +133,7 @@ export async function GET(request) {
     );
   }
 
-  // ── 5. Subir JPEG al cache de R2 ────────────────────────────────
+  // ── 6. Subir JPEG al cache de R2 ────────────────────────────────
   try {
     await s3Client.send(new PutObjectCommand({
       Bucket: process.env.R2_BUCKET_NAME,
@@ -144,8 +143,7 @@ export async function GET(request) {
       CacheControl: "public, max-age=31536000, immutable",
     }));
   } catch (err) {
-    // Error de cache no es crítico — la imagen se devuelve igual
-    console.error("Advertencia: no se pudo guardar en cache R2:", err.message);
+    console.error("Advertencia: no se pudo guardar imagen en R2:", err.message);
   }
 
   memoryCache.add(imageKey);
