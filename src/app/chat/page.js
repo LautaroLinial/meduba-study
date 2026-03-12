@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, Suspense, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CURRICULUM, getMateria } from "@/lib/curriculum";
+import PdfPageViewer from "@/components/PdfPageViewer";
 
 const yearColors = {
   "1": { gradient: "linear-gradient(135deg, #3b82f6, #6366f1)", glow: "rgba(59,130,246,0.15)", accent: "#3b82f6" },
@@ -131,16 +132,22 @@ function ChatContent() {
     });
   };
 
-  const openPage = useCallback((libro, page, fragmentText) => {
+  const openPage = useCallback(async (libro, page, fragmentText) => {
     const libroCompleto = loadedLibros.map(l => l.name).find(l =>
       l.toLowerCase().includes(libro.toLowerCase().split("&")[0].trim().split(" ")[0])
     ) || libro;
 
-    // La URL de /api/page devuelve directamente la imagen JPEG de la página
-    const params = new URLSearchParams({
-      year, materia: materiaKey, libro: libroCompleto, page: page.toString()
-    });
-    setPageModal({ libro: libroCompleto, page, pdfUrl: `/api/page?${params}`, fragmentText: fragmentText || "" });
+    // Mostrar modal de carga inmediatamente
+    setPageModal({ libro: libroCompleto, page, pdfUrl: null, fragmentText: fragmentText || "" });
+
+    try {
+      const params = new URLSearchParams({ year, materia: materiaKey, libro: libroCompleto });
+      const res = await fetch(`/api/page?${params}`);
+      const data = await res.json();
+      setPageModal({ libro: libroCompleto, page, pdfUrl: data.url, fragmentText: fragmentText || "" });
+    } catch {
+      setPageModal({ libro: libroCompleto, page, pdfUrl: "error", fragmentText: fragmentText || "" });
+    }
   }, [year, materiaKey, loadedLibros]);
 
   const sendMessage = async () => {
@@ -320,21 +327,19 @@ function ChatContent() {
             </div>
 
             <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-              {/* Visor PDF (Lado Izquierdo) */}
-              <div style={{ flex: 1, background: "#000", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {pageModal.pdfUrl === "error" && (
-                  <div style={{ color: "#ef4444", fontSize: "14px", textAlign: "center" }}>
+              {/* Visor PDF con pdf.js — solo descarga la página citada */}
+              <div style={{ flex: 1, background: "#111", position: "relative", overflow: "hidden" }}>
+                {pageModal.pdfUrl === "error" ? (
+                  <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#ef4444", fontSize: "14px", textAlign: "center" }}>
                     No se pudo cargar la página.<br/>
                     <span style={{ color: "#52525b", fontSize: "12px" }}>Verificá que el libro esté subido correctamente.</span>
                   </div>
-                )}
-                {pageModal.pdfUrl && pageModal.pdfUrl !== "error" && (
-                  <img
-                    key={pageModal.pdfUrl}
-                    src={pageModal.pdfUrl}
-                    alt={`${pageModal.libro} — Página ${pageModal.page}`}
-                    onError={() => setPageModal(prev => prev ? { ...prev, pdfUrl: "error" } : null)}
-                    style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }}
+                ) : (
+                  <PdfPageViewer
+                    key={`${pageModal.pdfUrl}-${pageModal.page}`}
+                    url={pageModal.pdfUrl}
+                    pageNumber={pageModal.page}
+                    accentColor={colors.accent}
                   />
                 )}
               </div>
