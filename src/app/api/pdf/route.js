@@ -1,23 +1,12 @@
 // ============================================================
 // API ROUTE - /api/pdf
-// Proxy de PDFs desde R2: reenvía Range requests al bucket.
-// Necesario porque R2 no tiene CORS configurado para el browser.
-// El servidor actúa como passthrough: descarga solo los bytes
-// solicitados (range requests), sin cargar el PDF completo.
+// Proxy ligero de PDFs desde R2 via URL pública.
+// Sin SDK de AWS — usa fetch() directo a pub-*.r2.dev
+// (server-side no tiene CORS, es mucho más rápido).
+// Reenvía Range requests para que pdf.js descargue por chunks.
 // ============================================================
 
 export const dynamic = 'force-dynamic';
-
-import { S3Client, GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
-
-const s3 = new S3Client({
-  region: "auto",
-  endpoint: process.env.R2_ENDPOINT,
-  credentials: {
-    accessKeyId:     process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-  },
-});
 
 export async function GET(request) {
   try {
@@ -26,35 +15,39 @@ export async function GET(request) {
 
     if (!key) return new Response("Missing key", { status: 400 });
 
+    const publicUrl = process.env.NEXT_PUBLIC_R2_URL?.replace(/\/$/, "");
+    if (!publicUrl) return new Response("NEXT_PUBLIC_R2_URL no configurada", { status: 500 });
+
+    const r2Url = `${publicUrl}/${key}`;
     const rangeHeader = request.headers.get("range");
 
-    const cmd = new GetObjectCommand({
-      Bucket: process.env.R2_BUCKET_NAME,
-      Key:    key,
-      ...(rangeHeader ? { Range: rangeHeader } : {}),
+    // Fetch server-side (sin CORS) — mucho más liviano que AWS SDK
+    const r2Response = await fetch(r2Url, {
+      headers: rangeHeader ? { Range: rangeHeader } : {},
     });
 
-    const r2Response = await s3.send(cmd);
+    if (!r2Response.ok && r2Response.status !== 206) {
+      return new Response("PDF no encontrado", { status: 404 });
+    }
 
     const headers = new Headers({
       "Content-Type":  "application/pdf",
       "Accept-Ranges": "bytes",
-      "Cache-Control": "public, max-age=3600",
-      // Permite que pdf.js lea la respuesta desde el mismo origen
-      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "public, max-age=86400",
+      "Access-Control-Allow-Origin":   "*",
       "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
     });
 
-    if (r2Response.ContentLength != null)
-      headers.set("Content-Length", r2Response.ContentLength.toString());
-    if (r2Response.ContentRange)
-      headers.set("Content-Range", r2Response.ContentRange);
+    // Propagar headers de rango desde R2
+    const contentRange  = r2Response.headers.get("content-range");
+    const contentLength = r2Response.headers.get("content-length");
+    if (contentRange)  headers.set("Content-Range",  contentRange);
+    if (contentLength) headers.set("Content-Length", contentLength);
 
-    // transformToWebStream() convierte el Node.js readable en Web ReadableStream
-    const body = r2Response.Body.transformToWebStream();
-    const status = rangeHeader ? 206 : 200;
-
-    return new Response(body, { status, headers });
+    return new Response(r2Response.body, {
+      status:  r2Response.status,
+      headers,
+    });
 
   } catch (error) {
     console.error("❌ ERROR EN API/PDF:", error);
@@ -62,7 +55,6 @@ export async function GET(request) {
   }
 }
 
-// Responder a preflight OPTIONS
 export async function OPTIONS() {
   return new Response(null, {
     status: 204,
@@ -70,7 +62,7 @@ export async function OPTIONS() {
       "Access-Control-Allow-Origin":  "*",
       "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
       "Access-Control-Allow-Headers": "Range, Content-Type",
-      "Access-Control-Max-Age":       "3600",
+      "Access-Control-Max-Age":       "86400",
     },
   });
 }

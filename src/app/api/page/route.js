@@ -1,8 +1,9 @@
 // ============================================================
 // API ROUTE - /api/page
-// Devuelve la URL del proxy (/api/pdf?key=...) para que el
-// cliente lo renderice con pdf.js mediante range requests.
-// Usamos el proxy para evitar el problema de CORS con R2.
+// Devuelve la URL del proxy (/api/pdf?key=...) para que pdf.js
+// haga range requests sin problemas de CORS.
+// Nota: R2 public URL (pub-*.r2.dev) no soporta CORS custom,
+// por eso usamos el proxy Next.js como passthrough.
 // ============================================================
 
 export const dynamic = 'force-dynamic';
@@ -29,7 +30,6 @@ export async function GET(request) {
     const libroSafe = safeFileName(libro);
     const pdfKey    = `${year}_${materia}_${libroSafe}.pdf`;
 
-    // Usar proxy /api/pdf para evitar problemas de CORS con R2
     return Response.json({ url: `/api/pdf?key=${encodeURIComponent(pdfKey)}` });
 
   } catch (error) {
