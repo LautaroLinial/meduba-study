@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-// IMPORTAMOS LA NUEVA FUNCIÓN AQUÍ
 import { deleteMaterialWithPages } from "@/lib/materialStore";
+import { S3Client, ListObjectsV2Command, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 
 const PDF_DIR = path.join(process.cwd(), "data", "pdfs");
 const CACHE_DIR = path.join(process.cwd(), "data", "page-cache");
@@ -51,7 +51,37 @@ export async function POST(req) {
       }
     }
 
-    // 4. Borrar del JSON (El "cerebro" de búsqueda)
+    // 4. Borrar páginas individuales y cache de R2
+    try {
+      const s3 = new S3Client({
+        region: "auto",
+        endpoint: process.env.R2_ENDPOINT,
+        credentials: {
+          accessKeyId: process.env.R2_ACCESS_KEY_ID,
+          secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+        },
+      });
+      const pdfKeyBase = `${year}_${materia}_${libroSafe}`;
+      const prefixes = [`pages/${pdfKeyBase}_p`, `cache/${pdfKeyBase}_p`];
+
+      for (const prefix of prefixes) {
+        const listed = await s3.send(new ListObjectsV2Command({
+          Bucket: process.env.R2_BUCKET_NAME,
+          Prefix: prefix,
+        }));
+        if (listed.Contents && listed.Contents.length > 0) {
+          await s3.send(new DeleteObjectsCommand({
+            Bucket: process.env.R2_BUCKET_NAME,
+            Delete: { Objects: listed.Contents.map(o => ({ Key: o.Key })) },
+          }));
+          deletedCount += listed.Contents.length;
+        }
+      }
+    } catch (r2Err) {
+      console.error("[material-delete] Error limpiando R2:", r2Err.message);
+    }
+
+    // 5. Borrar del JSON (El "cerebro" de búsqueda)
     const jsonBorrado = deleteMaterialWithPages(year, materia, libro);
 
     if (deletedCount === 0 && !jsonBorrado) {

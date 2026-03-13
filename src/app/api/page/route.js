@@ -42,8 +42,6 @@ export async function GET(request) {
     const pdfKey = `${year}_${materia}_${libroSafe}.pdf`;
 
     // Generar URL firmada válida por 1 hora.
-    // El navegador descarga el PDF directo desde R2 usando range requests,
-    // así solo baja los bytes de la página que necesita.
     const command = new GetObjectCommand({
       Bucket: process.env.R2_BUCKET_NAME,
       Key: pdfKey,

@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, Suspense, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CURRICULUM, getMateria } from "@/lib/curriculum";
+import PdfPageViewer, { clearPdfCache } from "@/components/PdfPageViewer";
 
 const yearColors = {
   "1": { gradient: "linear-gradient(135deg, #3b82f6, #6366f1)", glow: "rgba(59,130,246,0.15)", accent: "#3b82f6" },
@@ -51,8 +52,8 @@ function RotatingFunFact({ index }) {
           } while (newFact === prevFact);
           return newFact;
         });
-        setOpacity(1); 
-      }, 400); 
+        setOpacity(1);
+      }, 400);
     }, 12000 + (index * 1000));
     return () => clearInterval(interval);
   }, [index]);
@@ -136,37 +137,30 @@ function ChatContent() {
       l.toLowerCase().includes(libro.toLowerCase().split("&")[0].trim().split(" ")[0])
     ) || libro;
 
-    // Mostrar modal con spinner mientras se obtiene la URL firmada
-    setPageModal({ libro: libroCompleto, page, pdfUrl: null, fragmentText: fragmentText || "" });
+    const libroSafe = libroCompleto
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]/g, "_").substring(0, 80);
 
-    try {
-      const params = new URLSearchParams({
-        year, materia: materiaKey, libro: libroCompleto, page: page.toString()
-      });
-      const res = await fetch(`/api/page?${params}`);
-      const data = await res.json();
-      if (data.signedUrl) {
-        // #page=N le indica al visor PDF en qué página abrir directamente
-        setPageModal(prev => prev ? { ...prev, pdfUrl: `${data.signedUrl}#page=${page}` } : null);
-      } else {
-        setPageModal(prev => prev ? { ...prev, pdfUrl: "error" } : null);
-      }
-    } catch {
-      setPageModal(prev => prev ? { ...prev, pdfUrl: "error" } : null);
-    }
+    // URL de página individual (rápida, ~100KB)
+    const pageUrl = `/api/pdf-page?year=${year}&materia=${materiaKey}&libro=${encodeURIComponent(libroCompleto)}&page=${page}`;
+    // Fallback al PDF completo (por si no está splitado)
+    const r2Base = process.env.NEXT_PUBLIC_R2_URL?.replace(/\/$/, "");
+    const fallbackUrl = `${r2Base}/${year}_${materiaKey}_${libroSafe}.pdf`;
+
+    setPageModal({ libro: libroCompleto, page, pageUrl, fallbackUrl, fragmentText: fragmentText || "" });
   }, [year, materiaKey, loadedLibros]);
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
     const userMessage = input.trim();
     setInput("");
-    
+
     setMessages((prev) => [
-      ...prev, 
+      ...prev,
       { role: "user", content: userMessage, usedFragments: [] },
       { role: "assistant", content: "", usedFragments: [] }
     ]);
-    
+
     setIsLoading(true);
 
     try {
@@ -174,15 +168,18 @@ function ChatContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: userMessage, 
-          year: parseInt(year), 
+          message: userMessage,
+          year: parseInt(year),
           materia: materiaKey,
           history: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
           activeLibros: activeLibros,
         }),
       });
 
-      if (!response.ok) throw new Error("Error en la respuesta");
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+        throw new Error(errData.details || errData.error || `HTTP ${response.status}`);
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
@@ -191,7 +188,7 @@ function ChatContent() {
       let metadataParsed = false;
       let currentFragments = [];
 
-      setIsLoading(false); 
+      setIsLoading(false);
 
       while (!done) {
         const { value, done: readerDone } = await reader.read();
@@ -201,27 +198,34 @@ function ChatContent() {
           if (!metadataParsed && chunk.includes('---\n\n')) {
             const parts = chunk.split('---\n\n');
             try {
-               const meta = JSON.parse(parts[0]);
-               if (meta.type === 'metadata') currentFragments = meta.usedFragments;
+              const meta = JSON.parse(parts[0]);
+              if (meta.type === 'metadata') currentFragments = meta.usedFragments;
             } catch(e) {}
             aiText += parts[1] || "";
             metadataParsed = true;
           } else {
-             aiText += chunk;
+            aiText += chunk;
           }
 
           setMessages((prev) => {
             const newMessages = [...prev];
-            newMessages[newMessages.length - 1] = { 
-              role: "assistant", content: aiText, usedFragments: currentFragments 
+            newMessages[newMessages.length - 1] = {
+              role: "assistant", content: aiText, usedFragments: currentFragments
             };
             return newMessages;
           });
         }
       }
     } catch (error) {
-      console.error(error);
+      console.error("Error en sendMessage:", error.message);
       setIsLoading(false);
+      setMessages((prev) => {
+        const newMessages = [...prev];
+        newMessages[newMessages.length - 1] = {
+          role: "assistant", content: `⚠️ Error: ${error.message}`, usedFragments: []
+        };
+        return newMessages;
+      });
     }
   };
 
@@ -309,11 +313,11 @@ function ChatContent() {
         </div>
       </div>
 
-      {/* 🟢 MODAL PDF CON RECORTE DE PÁGINA ÚNICA Y PANEL LATERAL */}
+      {/* MODAL PDF */}
       {pageModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.95)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={() => setPageModal(null)}>
           <div style={{ background: "#111113", borderRadius: "16px", width: "100%", maxWidth: "1400px", height: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }} onClick={e => e.stopPropagation()}>
-            
+
             <div style={{ padding: "16px 24px", borderBottom: "1px solid #27272a", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#161618" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                  <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: "bold" }}>📖</div>
@@ -322,34 +326,24 @@ function ChatContent() {
                     <div style={{ color: colors.accent, fontSize: "12px" }}>Página {pageModal.page}</div>
                  </div>
               </div>
-              <button onClick={() => setPageModal(null)} style={{ color: "#a1a1aa", background: "rgba(255,255,255,0.05)", border: "none", width: "32px", height: "32px", borderRadius: "8px", cursor: "pointer" }}>✕</button>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <button onClick={async () => { await clearPdfCache(); alert("Cache de PDFs limpiado"); }} title="Limpiar cache de PDFs" style={{ color: "#a1a1aa", background: "rgba(255,255,255,0.05)", border: "none", width: "32px", height: "32px", borderRadius: "8px", cursor: "pointer", fontSize: "14px" }}>🗑️</button>
+                <button onClick={() => setPageModal(null)} style={{ color: "#a1a1aa", background: "rgba(255,255,255,0.05)", border: "none", width: "32px", height: "32px", borderRadius: "8px", cursor: "pointer" }}>✕</button>
+              </div>
             </div>
 
             <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-              {/* Visor PDF (Lado Izquierdo) */}
-              <div style={{ flex: 1, background: "#000", position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                {pageModal.pdfUrl === null && (
-                  <div style={{ color: "#52525b", fontSize: "14px", textAlign: "center" }}>
-                    <div style={{ fontSize: "28px", marginBottom: "12px", animation: "spin 1s linear infinite" }}>⏳</div>
-                    Obteniendo acceso al libro...
-                  </div>
-                )}
-                {pageModal.pdfUrl === "error" && (
-                  <div style={{ color: "#ef4444", fontSize: "14px", textAlign: "center" }}>
-                    No se pudo cargar el PDF.<br/>
-                    <span style={{ color: "#52525b", fontSize: "12px" }}>Verificá que el libro esté subido correctamente.</span>
-                  </div>
-                )}
-                {pageModal.pdfUrl && pageModal.pdfUrl !== "error" && (
-                  <iframe
-                    key={pageModal.pdfUrl}
-                    src={pageModal.pdfUrl}
-                    style={{ width: "100%", height: "100%", border: "none", position: "absolute", inset: 0 }}
-                  />
-                )}
+              {/* Visor PDF — página individual desde R2 */}
+              <div style={{ flex: 1, background: "#111", position: "relative", overflow: "hidden" }}>
+                <PdfPageViewer
+                  key={`${pageModal.libro}-${pageModal.page}`}
+                  pageUrl={pageModal.pageUrl}
+                  fallbackUrl={pageModal.fallbackUrl}
+                  page={pageModal.page}
+                />
               </div>
 
-              {/* Panel Lateral de Texto Extraído (Lado Derecho) */}
+              {/* Panel Lateral de Texto Extraído */}
               <div style={{ width: "340px", background: "#161618", borderLeft: "1px solid #27272a", display: "flex", flexDirection: "column" }}>
                 <div style={{ padding: "20px", borderBottom: "1px solid #27272a" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
@@ -362,8 +356,8 @@ function ChatContent() {
                 <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
                   {pageModal.fragmentText ? (
                     getRelevantSentences(pageModal.fragmentText).map((sentence, idx) => (
-                      <div key={idx} style={{ 
-                        padding: "12px", borderRadius: "8px", background: "rgba(255,255,255,0.02)", 
+                      <div key={idx} style={{
+                        padding: "12px", borderRadius: "8px", background: "rgba(255,255,255,0.02)",
                         borderLeft: `3px solid ${colors.accent}`, marginBottom: "12px",
                         color: "#d4d4d8", fontSize: "12.5px", lineHeight: "1.6"
                       }}>
