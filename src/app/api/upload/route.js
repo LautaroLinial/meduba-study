@@ -4,6 +4,7 @@ import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import * as mupdf from "mupdf";
 import { pdfDocCache } from "@/lib/pdfDocCache";
+import { splitAndUploadPages } from "@/lib/pdfPageSplitter";
 
 const s3Client = new S3Client({
   region: "auto",
@@ -139,6 +140,12 @@ export async function POST(request) {
     // y el render ocurre en segundo plano usando el doc en memoria
     preRenderAllPages(doc, totalPages, pdfKeyBase).catch((err) =>
       console.error("[pre-render] Error fatal:", err.message)
+    );
+
+    // ── PASO 5: Split de páginas individuales en background ─────
+    // Cada página se guarda como PDF individual en R2 para carga instantánea
+    splitAndUploadPages(buffer, pdfKeyBase, totalPages).catch((err) =>
+      console.error("[split-pages] Error fatal:", err.message)
     );
 
     return NextResponse.json({

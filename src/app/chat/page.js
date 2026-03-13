@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, Suspense, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CURRICULUM, getMateria } from "@/lib/curriculum";
-import PdfPageViewer from "@/components/PdfPageViewer";
+import PdfPageViewer, { clearPdfCache } from "@/components/PdfPageViewer";
 
 const yearColors = {
   "1": { gradient: "linear-gradient(135deg, #3b82f6, #6366f1)", glow: "rgba(59,130,246,0.15)", accent: "#3b82f6" },
@@ -137,14 +137,17 @@ function ChatContent() {
       l.toLowerCase().includes(libro.toLowerCase().split("&")[0].trim().split(" ")[0])
     ) || libro;
 
-    // Calcular URL del PDF directo en R2 (sin fetch al servidor)
     const libroSafe = libroCompleto
       .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-zA-Z0-9]/g, "_").substring(0, 80);
-    const r2Base = process.env.NEXT_PUBLIC_R2_URL?.replace(/\/$/, "");
-    const pdfUrl = `${r2Base}/${year}_${materiaKey}_${libroSafe}.pdf`;
 
-    setPageModal({ libro: libroCompleto, page, pdfUrl, fragmentText: fragmentText || "" });
+    // URL de página individual (rápida, ~100KB)
+    const pageUrl = `/api/pdf-page?year=${year}&materia=${materiaKey}&libro=${encodeURIComponent(libroCompleto)}&page=${page}`;
+    // Fallback al PDF completo (por si no está splitado)
+    const r2Base = process.env.NEXT_PUBLIC_R2_URL?.replace(/\/$/, "");
+    const fallbackUrl = `${r2Base}/${year}_${materiaKey}_${libroSafe}.pdf`;
+
+    setPageModal({ libro: libroCompleto, page, pageUrl, fallbackUrl, fragmentText: fragmentText || "" });
   }, [year, materiaKey, loadedLibros]);
 
   const sendMessage = async () => {
@@ -173,7 +176,10 @@ function ChatContent() {
         }),
       });
 
-      if (!response.ok) throw new Error("Error en la respuesta");
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+        throw new Error(errData.details || errData.error || `HTTP ${response.status}`);
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
@@ -211,12 +217,12 @@ function ChatContent() {
         }
       }
     } catch (error) {
-      console.error(error);
+      console.error("Error en sendMessage:", error.message);
       setIsLoading(false);
       setMessages((prev) => {
         const newMessages = [...prev];
         newMessages[newMessages.length - 1] = {
-          role: "assistant", content: "⚠️ Hubo un error al conectar con el servidor. Intentá de nuevo.", usedFragments: []
+          role: "assistant", content: `⚠️ Error: ${error.message}`, usedFragments: []
         };
         return newMessages;
       });
@@ -320,7 +326,10 @@ function ChatContent() {
                     <div style={{ color: colors.accent, fontSize: "12px" }}>Página {pageModal.page}</div>
                  </div>
               </div>
-              <button onClick={() => setPageModal(null)} style={{ color: "#a1a1aa", background: "rgba(255,255,255,0.05)", border: "none", width: "32px", height: "32px", borderRadius: "8px", cursor: "pointer" }}>✕</button>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <button onClick={async () => { await clearPdfCache(); alert("Cache de PDFs limpiado"); }} title="Limpiar cache de PDFs" style={{ color: "#a1a1aa", background: "rgba(255,255,255,0.05)", border: "none", width: "32px", height: "32px", borderRadius: "8px", cursor: "pointer", fontSize: "14px" }}>🗑️</button>
+                <button onClick={() => setPageModal(null)} style={{ color: "#a1a1aa", background: "rgba(255,255,255,0.05)", border: "none", width: "32px", height: "32px", borderRadius: "8px", cursor: "pointer" }}>✕</button>
+              </div>
             </div>
 
             <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
@@ -328,9 +337,9 @@ function ChatContent() {
               <div style={{ flex: 1, background: "#111", position: "relative", overflow: "hidden" }}>
                 <PdfPageViewer
                   key={`${pageModal.libro}-${pageModal.page}`}
-                  pdfUrl={pageModal.pdfUrl}
+                  pageUrl={pageModal.pageUrl}
+                  fallbackUrl={pageModal.fallbackUrl}
                   page={pageModal.page}
-                  accentColor={colors.accent}
                 />
               </div>
 
