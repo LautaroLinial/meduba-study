@@ -150,14 +150,30 @@ export async function POST(request) {
       for (const entry of toc.entries) {
         const titleNorm = entry.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
 
-        // TOC boost: solo cuando TODOS los query words originales matchean el título
-        // Esto evita falsos positivos (ej: "articulacion" sola matcheando "Articulaciones del cráneo")
+        // ── Dos niveles de TOC boost ──
         const queryMatchCount = queryWords.filter(w => stemMatch(w, titleNorm)).length;
         const queryRatio = queryMatchCount / Math.max(queryWords.length, 1);
 
+        // STRONG: TODOS los query words matchean el título (ej: "plexo braquial" → "Plexo braquial")
+        // MODERATE: la mayoría de las palabras del TÍTULO están cubiertas por nuestros search terms
+        //   Esto captura casos como query "glandula mamaria" → TOC "Mama" (porque "mama" está en expanded)
+        //   pero NO matchea "Articulaciones de la cabeza" para query "articulacion del hombro"
+        //   (porque "cabeza" NO está en los search terms)
+        const allSearchTerms = [...new Set([...queryWords, ...expandedWords])];
+        const significantTitleWords = titleNorm.split(/\s+/).filter(w =>
+          w.length > 3 && !["capitulo", "capitulos"].includes(w) && !/^\d+[:.]?$/.test(w)
+        );
+        const titleCoverage = significantTitleWords.length > 0
+          ? significantTitleWords.filter(tw =>
+              allSearchTerms.some(s => stemMatch(s, tw) || stemMatch(tw, s))
+            ).length / significantTitleWords.length
+          : 0;
+
         let boost = 0;
         if (queryRatio >= 1.0 && queryMatchCount >= 2) {
-          boost = 150;
+          boost = 150; // STRONG
+        } else if (titleCoverage >= 0.7 && significantTitleWords.length >= 1) {
+          boost = 80; // MODERATE — el título del capítulo está bien cubierto por los search terms
         }
 
         if (boost > 0) {
