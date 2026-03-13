@@ -10,6 +10,33 @@ import { expandQueryWithAI } from "@/lib/queryExpander";
 import fs from "fs";
 import path from "path";
 
+// Workaround: cargar .env.local manualmente si Next.js no lo hizo
+if (!process.env.ANTHROPIC_API_KEY) {
+  const envPaths = [
+    path.join(process.cwd(), ".env.local"),
+    path.resolve(process.cwd(), "../../.env.local"),       // worktree → repo root
+    path.resolve(process.cwd(), "../../../.env.local"),
+    path.resolve(process.cwd(), "../../../../.env.local"),
+    path.resolve(process.cwd(), "../../../../../.env.local"),
+  ];
+  for (const envPath of envPaths) {
+    if (fs.existsSync(envPath)) {
+      const lines = fs.readFileSync(envPath, "utf8").split("\n");
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t || t.startsWith("#")) continue;
+        const eq = t.indexOf("=");
+        if (eq > 0) {
+          const k = t.slice(0, eq).trim();
+          const v = t.slice(eq + 1).trim();
+          if (!process.env[k]) process.env[k] = v;
+        }
+      }
+      break;
+    }
+  }
+}
+
 export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
@@ -56,37 +83,44 @@ export async function POST(request) {
       return false;
     }
 
-    // Exact matches con matching PARCIAL (no requiere TODAS las palabras)
+    // Exact matches con scoring que prioriza query words originales
     const exactMatches = [];
     const searchWords = [...new Set([...queryWords, ...expandedWords])];
+    const expandedOnly = searchWords.filter(w => !queryWords.includes(w));
     allFragments.forEach(f => {
       const textLower = f.text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
 
-      // Frase completa
+      // Frase completa → score máximo
       if (textLower.includes(queryPhrase)) {
         exactMatches.push({ id: f.id, page: f.page, libro: f.libro, score: 100 });
         return;
       }
 
-      // Matching parcial con stem
-      const matchCount = searchWords.filter(w => stemMatch(w, textLower)).length;
-      const matchRatio = matchCount / Math.max(searchWords.length, 1);
+      // Scoring ponderado: query words valen mucho más que sinónimos expandidos
+      const queryHits = queryWords.filter(w => stemMatch(w, textLower)).length;
+      const expandedHits = expandedOnly.filter(w => stemMatch(w, textLower)).length;
+      const totalHits = queryHits + expandedHits;
 
-      if (matchRatio >= 0.4 && matchCount >= 2) {
-        exactMatches.push({ id: f.id, page: f.page, libro: f.libro, score: Math.round(70 * matchRatio) });
+      if (totalHits >= 2) {
+        // Query words: 30pts c/u, expanded: 3pts c/u (cap 30)
+        const score = (queryHits * 30) + Math.min(expandedHits * 3, 30);
+        exactMatches.push({ id: f.id, page: f.page, libro: f.libro, score });
       }
     });
 
-    // Title matches con matching parcial
+    // Title matches con scoring ponderado
     const titleMatches = [];
     allFragments.forEach(f => {
       const lines = f.text.split("\n").slice(0, 5);
       for (const line of lines) {
         if (line.length >= 200) continue;
         const lineLower = line.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
-        const matchCount = searchWords.filter(w => stemMatch(w, lineLower)).length;
-        if (matchCount >= 2 && matchCount / Math.max(queryWords.length, 1) >= 0.5) {
-          titleMatches.push({ id: f.id, page: f.page, libro: f.libro, score: Math.round(80 * (matchCount / queryWords.length)) });
+        const queryHits = queryWords.filter(w => stemMatch(w, lineLower)).length;
+        const expandedHits = expandedOnly.filter(w => stemMatch(w, lineLower)).length;
+        const totalHits = queryHits + expandedHits;
+        if (totalHits >= 2) {
+          const score = (queryHits * 35) + Math.min(expandedHits * 3, 25);
+          titleMatches.push({ id: f.id, page: f.page, libro: f.libro, score });
           break;
         }
       }
@@ -115,20 +149,23 @@ export async function POST(request) {
 
       for (const entry of toc.entries) {
         const titleNorm = entry.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
-        const titleWords = titleNorm.split(/\s+/).filter(w => w.length > 2);
 
-        // Matchear query words + expanded words contra el título del TOC
-        const allSearchTerms = [...new Set([...queryWords, ...expandedWords])];
-        const matchCount = allSearchTerms.filter(w => stemMatch(w, titleNorm)).length;
-        const matchRatio = matchCount / Math.max(queryWords.length, 1);
+        // TOC boost: solo cuando TODOS los query words originales matchean el título
+        // Esto evita falsos positivos (ej: "articulacion" sola matcheando "Articulaciones del cráneo")
+        const queryMatchCount = queryWords.filter(w => stemMatch(w, titleNorm)).length;
+        const queryRatio = queryMatchCount / Math.max(queryWords.length, 1);
 
-        if (matchRatio >= 0.5 && matchCount >= 2) {
+        let boost = 0;
+        if (queryRatio >= 1.0 && queryMatchCount >= 2) {
+          boost = 150;
+        }
+
+        if (boost > 0) {
           const page = entry.page;
-          const boost = Math.round(150 * matchRatio);
           // Boost para la página del TOC y las ~5 siguientes (un capítulo suele abarcar varias)
           for (let p = page; p <= page + 5; p++) {
             const currentBoost = tocBoost.get(`${libroName}_${p}`) || 0;
-            const pageBoost = p === page ? boost : Math.round(boost * 0.6); // Páginas siguientes reciben menos
+            const pageBoost = p === page ? boost : Math.round(boost * 0.6);
             tocBoost.set(`${libroName}_${p}`, Math.max(currentBoost, pageBoost));
           }
         }
