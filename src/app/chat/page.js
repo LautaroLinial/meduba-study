@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, Suspense, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CURRICULUM, getMateria } from "@/lib/curriculum";
-import PdfPageViewer from "@/components/PdfPageViewer";
+import PdfPageViewer, { clearPdfCache } from "@/components/PdfPageViewer";
 
 const yearColors = {
   "1": { gradient: "linear-gradient(135deg, #3b82f6, #6366f1)", glow: "rgba(59,130,246,0.15)", accent: "#3b82f6" },
@@ -52,8 +52,8 @@ function RotatingFunFact({ index }) {
           } while (newFact === prevFact);
           return newFact;
         });
-        setOpacity(1); 
-      }, 400); 
+        setOpacity(1);
+      }, 400);
     }, 12000 + (index * 1000));
     return () => clearInterval(interval);
   }, [index]);
@@ -76,6 +76,7 @@ function ChatContent() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [pageModal, setPageModal] = useState(null);
   const [loadedLibros, setLoadedLibros] = useState([]);
   const [activeLibros, setActiveLibros] = useState([]);
@@ -132,19 +133,22 @@ function ChatContent() {
     });
   };
 
-  const openPage = useCallback((libro, page, fragmentText) => {
+  const openPage = useCallback(async (libro, page, fragmentText) => {
     const libroCompleto = loadedLibros.map(l => l.name).find(l =>
       l.toLowerCase().includes(libro.toLowerCase().split("&")[0].trim().split(" ")[0])
     ) || libro;
 
-    // Calcular URL del PDF directo en R2 (sin fetch al servidor)
     const libroSafe = libroCompleto
       .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
       .replace(/[^a-zA-Z0-9]/g, "_").substring(0, 80);
-    const r2Base = process.env.NEXT_PUBLIC_R2_URL?.replace(/\/$/, "");
-    const pdfUrl = `${r2Base}/${year}_${materiaKey}_${libroSafe}.pdf`;
 
-    setPageModal({ libro: libroCompleto, page, pdfUrl, fragmentText: fragmentText || "" });
+    // URL de página individual (rápida, ~100KB)
+    const pageUrl = `/api/pdf-page?year=${year}&materia=${materiaKey}&libro=${encodeURIComponent(libroCompleto)}&page=${page}`;
+    // Fallback al PDF completo (por si no está splitado)
+    const r2Base = process.env.NEXT_PUBLIC_R2_URL?.replace(/\/$/, "");
+    const fallbackUrl = `${r2Base}/${year}_${materiaKey}_${libroSafe}.pdf`;
+
+    setPageModal({ libro: libroCompleto, page, pageUrl, fallbackUrl, fragmentText: fragmentText || "" });
   }, [year, materiaKey, loadedLibros]);
 
   const sendMessage = async () => {
@@ -152,13 +156,14 @@ function ChatContent() {
     const userMessage = input.trim();
     setInput("");
 
+    // Solo agregar el mensaje del usuario — el typing indicator se muestra via isLoading
     setMessages((prev) => [
       ...prev,
       { role: "user", content: userMessage, usedFragments: [] },
-      { role: "assistant", content: "", usedFragments: [] }
     ]);
 
     setIsLoading(true);
+    setIsStreaming(false);
 
     try {
       const response = await fetch("/api/chat", {
@@ -173,7 +178,10 @@ function ChatContent() {
         }),
       });
 
-      if (!response.ok) throw new Error("Error en la respuesta");
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+        throw new Error(errData.details || errData.error || `HTTP ${response.status}`);
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
@@ -181,8 +189,10 @@ function ChatContent() {
       let aiText = "";
       let metadataParsed = false;
       let currentFragments = [];
+      let assistantAdded = false;
 
       setIsLoading(false);
+      setIsStreaming(true);
 
       while (!done) {
         const { value, done: readerDone } = await reader.read();
@@ -201,25 +211,33 @@ function ChatContent() {
             aiText += chunk;
           }
 
-          setMessages((prev) => {
-            const newMessages = [...prev];
-            newMessages[newMessages.length - 1] = {
-              role: "assistant", content: aiText, usedFragments: currentFragments
-            };
-            return newMessages;
-          });
+          if (!assistantAdded) {
+            // Agregar mensaje assistant cuando llega el primer chunk
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: aiText, usedFragments: currentFragments }
+            ]);
+            assistantAdded = true;
+          } else {
+            setMessages((prev) => {
+              const newMessages = [...prev];
+              newMessages[newMessages.length - 1] = {
+                role: "assistant", content: aiText, usedFragments: currentFragments
+              };
+              return newMessages;
+            });
+          }
         }
       }
+      setIsStreaming(false);
     } catch (error) {
-      console.error(error);
+      console.error("Error en sendMessage:", error.message);
       setIsLoading(false);
-      setMessages((prev) => {
-        const newMessages = [...prev];
-        newMessages[newMessages.length - 1] = {
-          role: "assistant", content: "⚠️ Hubo un error al conectar con el servidor. Intentá de nuevo.", usedFragments: []
-        };
-        return newMessages;
-      });
+      setIsStreaming(false);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `⚠️ Error: ${error.message}`, usedFragments: [] }
+      ]);
     }
   };
 
@@ -239,7 +257,7 @@ function ChatContent() {
     html = html.replace(citationRegex, (match, libroRaw, pageNum) => {
       const libro = libroRaw.trim();
       const page = pageNum.trim().split(/[-–]/)[0].trim();
-      return `<button class="citation-btn" data-libro="${libro}" data-page="${page}" data-msgindex="${messageIndex}" style="display:inline;background:rgba(255,255,255,0.06);color:${colors.accent};padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);cursor:pointer;font-size:12px;font-family:inherit;transition:all 0.2s;margin:2px 0;">📖 ${libro}, pág. ${pageNum}</button>`;
+      return `<button class="citation-btn" data-libro="${libro}" data-page="${page}" data-msgindex="${messageIndex}" style="display:inline-flex;align-items:center;gap:6px;background:${colors.accent}15;color:${colors.accent};padding:6px 12px;border-radius:8px;border:1px solid ${colors.accent}30;cursor:pointer;font-size:12px;font-family:inherit;transition:all 0.2s;margin:4px 2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);">📖 ${libro}, pág. ${pageNum}</button>`;
     });
     return html;
   }
@@ -284,17 +302,41 @@ function ChatContent() {
       {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 0" }}>
         <div style={{ maxWidth: "760px", margin: "0 auto", padding: "0 20px" }}>
-          {messages.map((msg, i) => (
-            <div key={i} ref={i === lastUserIndex ? latestQuestionRef : null} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start", marginBottom: "16px", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
+          {messages.map((msg, i) => {
+            const isLastAssistant = msg.role === "assistant" && i === messages.length - 1 && isStreaming;
+            return (
+            <div key={i} ref={i === lastUserIndex ? latestQuestionRef : null} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start", marginBottom: "20px", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
               <div style={{ display: "flex", maxWidth: "100%" }}>
-                {msg.role === "assistant" && <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", color: "white", flexShrink: 0, marginRight: "10px" }}>M</div>}
-                <div onClick={msg.role === "assistant" ? handleMessageClick : undefined} style={{ maxWidth: "85%", background: msg.role === "user" ? "rgba(255,255,255,0.08)" : "transparent", padding: msg.role === "user" ? "10px 16px" : "0", borderRadius: "16px", color: "#a1a1aa", fontSize: "14px", lineHeight: "1.7", whiteSpace: "pre-wrap" }}>
-                  <div dangerouslySetInnerHTML={{ __html: msg.role === "assistant" ? formatMessageWithCitations(msg.content, i) : formatMessage(msg.content) }} />
+                {msg.role === "assistant" && <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", color: "white", flexShrink: 0, marginRight: "10px", marginTop: "2px" }}>✨</div>}
+                <div onClick={msg.role === "assistant" ? handleMessageClick : undefined} style={{
+                  maxWidth: "85%",
+                  background: msg.role === "user" ? `${colors.accent}12` : "transparent",
+                  padding: msg.role === "user" ? "10px 16px" : "2px 0 2px 12px",
+                  borderRadius: msg.role === "user" ? "16px" : "0",
+                  borderLeft: msg.role === "assistant" ? `2px solid ${colors.accent}25` : "none",
+                  color: msg.role === "assistant" ? "#d4d4d8" : "#e4e4e7",
+                  fontSize: "14px", lineHeight: "1.75", whiteSpace: "pre-wrap"
+                }}>
+                  <div className={isLastAssistant ? "streaming-cursor" : ""} dangerouslySetInnerHTML={{ __html: msg.role === "assistant" ? formatMessageWithCitations(msg.content, i) : formatMessage(msg.content) }} />
                 </div>
               </div>
               {msg.role === "assistant" && <div style={{ marginTop: "20px", marginLeft: "38px", maxWidth: "480px", width: "100%" }}><RotatingFunFact index={i} /></div>}
             </div>
-          ))}
+            );
+          })}
+
+          {/* Typing indicator */}
+          {isLoading && (
+            <div style={{ display: "flex", alignItems: "flex-start", marginBottom: "20px" }}>
+              <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", color: "white", flexShrink: 0, marginRight: "10px", marginTop: "2px" }}>✨</div>
+              <div style={{ display: "flex", gap: "5px", padding: "14px 18px", background: "rgba(255,255,255,0.03)", borderRadius: "12px", borderLeft: `2px solid ${colors.accent}25` }}>
+                <div className="dot-bounce-1" style={{ background: colors.accent }} />
+                <div className="dot-bounce-2" style={{ background: colors.accent }} />
+                <div className="dot-bounce-3" style={{ background: colors.accent }} />
+              </div>
+            </div>
+          )}
+
           <div ref={messagesEndRef} />
         </div>
       </div>
@@ -302,16 +344,16 @@ function ChatContent() {
       {/* Input */}
       <div style={{ padding: "16px 20px 20px", flexShrink: 0 }}>
         <div style={{ maxWidth: "760px", margin: "0 auto", background: "#18181b", borderRadius: "14px", padding: "6px 18px", display: "flex", alignItems: "center" }}>
-          <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Haz una pregunta..." style={{ flex: 1, background: "transparent", color: "#e4e4e7", border: "none", outline: "none", resize: "none" }} rows={1} />
-          <button onClick={sendMessage} style={{ background: colors.gradient, color: "white", border: "none", borderRadius: "8px", padding: "8px 12px", cursor: "pointer" }}>↑</button>
+          <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Hacé una pregunta..." style={{ flex: 1, background: "transparent", color: "#e4e4e7", border: "none", outline: "none", resize: "none", fontSize: "14px" }} rows={1} />
+          <button onClick={sendMessage} disabled={!input.trim() || isLoading} style={{ background: colors.gradient, color: "white", border: "none", borderRadius: "8px", padding: "8px 12px", cursor: input.trim() && !isLoading ? "pointer" : "default", opacity: input.trim() && !isLoading ? 1 : 0.35, transition: "opacity 0.2s" }}>↑</button>
         </div>
       </div>
 
-      {/* 🟢 MODAL PDF CON RECORTE DE PÁGINA ÚNICA Y PANEL LATERAL */}
+      {/* MODAL PDF */}
       {pageModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.95)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={() => setPageModal(null)}>
           <div style={{ background: "#111113", borderRadius: "16px", width: "100%", maxWidth: "1400px", height: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }} onClick={e => e.stopPropagation()}>
-            
+
             <div style={{ padding: "16px 24px", borderBottom: "1px solid #27272a", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#161618" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                  <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: "bold" }}>📖</div>
@@ -320,21 +362,24 @@ function ChatContent() {
                     <div style={{ color: colors.accent, fontSize: "12px" }}>Página {pageModal.page}</div>
                  </div>
               </div>
-              <button onClick={() => setPageModal(null)} style={{ color: "#a1a1aa", background: "rgba(255,255,255,0.05)", border: "none", width: "32px", height: "32px", borderRadius: "8px", cursor: "pointer" }}>✕</button>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <button onClick={async () => { await clearPdfCache(); alert("Cache de PDFs limpiado"); }} title="Limpiar cache de PDFs" style={{ color: "#a1a1aa", background: "rgba(255,255,255,0.05)", border: "none", width: "32px", height: "32px", borderRadius: "8px", cursor: "pointer", fontSize: "14px" }}>🗑️</button>
+                <button onClick={() => setPageModal(null)} style={{ color: "#a1a1aa", background: "rgba(255,255,255,0.05)", border: "none", width: "32px", height: "32px", borderRadius: "8px", cursor: "pointer" }}>✕</button>
+              </div>
             </div>
 
             <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-              {/* Visor PDF — iframe directo al PDF en R2 (texto copiable) */}
+              {/* Visor PDF — página individual desde R2 */}
               <div style={{ flex: 1, background: "#111", position: "relative", overflow: "hidden" }}>
                 <PdfPageViewer
                   key={`${pageModal.libro}-${pageModal.page}`}
-                  pdfUrl={pageModal.pdfUrl}
+                  pageUrl={pageModal.pageUrl}
+                  fallbackUrl={pageModal.fallbackUrl}
                   page={pageModal.page}
-                  accentColor={colors.accent}
                 />
               </div>
 
-              {/* Panel Lateral de Texto Extraído (Lado Derecho) */}
+              {/* Panel Lateral de Texto Extraído */}
               <div style={{ width: "340px", background: "#161618", borderLeft: "1px solid #27272a", display: "flex", flexDirection: "column" }}>
                 <div style={{ padding: "20px", borderBottom: "1px solid #27272a" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
@@ -347,8 +392,8 @@ function ChatContent() {
                 <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
                   {pageModal.fragmentText ? (
                     getRelevantSentences(pageModal.fragmentText).map((sentence, idx) => (
-                      <div key={idx} style={{ 
-                        padding: "12px", borderRadius: "8px", background: "rgba(255,255,255,0.02)", 
+                      <div key={idx} style={{
+                        padding: "12px", borderRadius: "8px", background: "rgba(255,255,255,0.02)",
                         borderLeft: `3px solid ${colors.accent}`, marginBottom: "12px",
                         color: "#d4d4d8", fontSize: "12.5px", lineHeight: "1.6"
                       }}>
