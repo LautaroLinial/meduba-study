@@ -52,8 +52,8 @@ function RotatingFunFact({ index }) {
           } while (newFact === prevFact);
           return newFact;
         });
-        setOpacity(1); 
-      }, 400); 
+        setOpacity(1);
+      }, 400);
     }, 12000 + (index * 1000));
     return () => clearInterval(interval);
   }, [index]);
@@ -132,7 +132,7 @@ function ChatContent() {
     });
   };
 
-  const openPage = useCallback((libro, page, fragmentText) => {
+  const openPage = useCallback(async (libro, page, fragmentText) => {
     const libroCompleto = loadedLibros.map(l => l.name).find(l =>
       l.toLowerCase().includes(libro.toLowerCase().split("&")[0].trim().split(" ")[0])
     ) || libro;
@@ -313,11 +313,11 @@ function ChatContent() {
         </div>
       </div>
 
-      {/* 🟢 MODAL PDF CON RECORTE DE PÁGINA ÚNICA Y PANEL LATERAL */}
+      {/* MODAL PDF */}
       {pageModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.95)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={() => setPageModal(null)}>
           <div style={{ background: "#111113", borderRadius: "16px", width: "100%", maxWidth: "1400px", height: "90vh", display: "flex", flexDirection: "column", overflow: "hidden", border: "1px solid rgba(255,255,255,0.08)" }} onClick={e => e.stopPropagation()}>
-            
+
             <div style={{ padding: "16px 24px", borderBottom: "1px solid #27272a", display: "flex", justifyContent: "space-between", alignItems: "center", background: "#161618" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                  <div style={{ width: "32px", height: "32px", borderRadius: "8px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontWeight: "bold" }}>📖</div>
@@ -333,7 +333,7 @@ function ChatContent() {
             </div>
 
             <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-              {/* Visor PDF — iframe directo al PDF en R2 (texto copiable) */}
+              {/* Visor PDF — página individual desde R2 */}
               <div style={{ flex: 1, background: "#111", position: "relative", overflow: "hidden" }}>
                 <PdfPageViewer
                   key={`${pageModal.libro}-${pageModal.page}`}
@@ -343,7 +343,7 @@ function ChatContent() {
                 />
               </div>
 
-              {/* Panel Lateral de Texto Extraído (Lado Derecho) */}
+              {/* Panel Lateral de Texto Extraído */}
               <div style={{ width: "340px", background: "#161618", borderLeft: "1px solid #27272a", display: "flex", flexDirection: "column" }}>
                 <div style={{ padding: "20px", borderBottom: "1px solid #27272a" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
@@ -356,8 +356,8 @@ function ChatContent() {
                 <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
                   {pageModal.fragmentText ? (
                     getRelevantSentences(pageModal.fragmentText).map((sentence, idx) => (
-                      <div key={idx} style={{ 
-                        padding: "12px", borderRadius: "8px", background: "rgba(255,255,255,0.02)", 
+                      <div key={idx} style={{
+                        padding: "12px", borderRadius: "8px", background: "rgba(255,255,255,0.02)",
                         borderLeft: `3px solid ${colors.accent}`, marginBottom: "12px",
                         color: "#d4d4d8", fontSize: "12.5px", lineHeight: "1.6"
                       }}>

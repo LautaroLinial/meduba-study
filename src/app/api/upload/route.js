@@ -90,20 +90,20 @@ async function preRenderAllPages(doc, totalPages, pdfKeyBase) {
 export async function POST(request) {
   try {
     const formData = await request.formData();
-    const file      = formData.get("file");
-    const year      = formData.get("year");
-    const materia   = formData.get("materia");
-    const libro     = formData.get("libro");
+    const file = formData.get("file");
+    const year = formData.get("year");
+    const materia = formData.get("materia");
+    const libro = formData.get("libro");
     const pageOffset = parseInt(formData.get("pageOffset") || "0");
 
     if (!file || !year || !materia || !libro) {
       return NextResponse.json({ error: "Faltan datos obligatorios." }, { status: 400 });
     }
 
-    const bytes       = await file.arrayBuffer();
-    const buffer      = Buffer.from(bytes);
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
     const pdfFileName = `${year}_${materia}_${safeFileName(libro)}.pdf`;
-    const pdfKeyBase  = pdfFileName.replace(".pdf", "");
+    const pdfKeyBase = pdfFileName.replace(".pdf", "");
 
     // ── PASO 1: Subir PDF a R2 ────────────────────────────────────
     console.log(`Subiendo ${pdfFileName} a Cloudflare R2...`);
@@ -114,12 +114,12 @@ export async function POST(request) {
     console.log("¡Subida completada!");
 
     // ── PASO 2: Extraer texto con mupdf ──────────────────────────
-    const doc        = mupdf.Document.openDocument(buffer, "application/pdf");
+    const doc = mupdf.Document.openDocument(buffer, "application/pdf");
     const totalPages = doc.countPages();
-    let fragments    = [];
+    let fragments = [];
 
     for (let i = 0; i < totalPages; i++) {
-      const page     = doc.loadPage(i);
+      const page = doc.loadPage(i);
       const pageText = page.toStructuredText("preserve-whitespace").asText();
       if (pageText.trim().length < 20) continue;
 
@@ -131,19 +131,15 @@ export async function POST(request) {
     saveMaterialWithPages({ year: parseInt(year), materia, libro, fragments });
 
     // ── PASO 3: Guardar doc en cache compartido ───────────────────
-    // render-page lo usará sin re-descargar el PDF
     pdfDocCache.set(pdfFileName, { doc, totalPages });
     console.log(`[upload] PDF guardado en pdfDocCache: ${pdfFileName}`);
 
     // ── PASO 4: Pre-render de todas las páginas en background ─────
-    // No awaiteamos — el admin recibe la respuesta de inmediato
-    // y el render ocurre en segundo plano usando el doc en memoria
     preRenderAllPages(doc, totalPages, pdfKeyBase).catch((err) =>
       console.error("[pre-render] Error fatal:", err.message)
     );
 
     // ── PASO 5: Split de páginas individuales en background ─────
-    // Cada página se guarda como PDF individual en R2 para carga instantánea
     splitAndUploadPages(buffer, pdfKeyBase, totalPages).catch((err) =>
       console.error("[split-pages] Error fatal:", err.message)
     );
