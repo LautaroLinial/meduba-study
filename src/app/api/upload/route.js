@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { saveMaterialWithPages } from "@/lib/materialStore";
+import { saveMaterialWithPages, saveTOC } from "@/lib/materialStore";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import * as mupdf from "mupdf";
@@ -87,6 +87,90 @@ async function preRenderAllPages(doc, totalPages, pdfKeyBase) {
   console.log(`[pre-render] ✅ Completado: ${rendered} páginas nuevas, ${skipped} ya estaban en R2`);
 }
 
+// ============================================================
+// EXTRAER TOC EN BACKGROUND
+// Toma los fragmentos de las primeras páginas y usa Claude
+// para identificar la tabla de contenidos del libro.
+// ============================================================
+async function extractTOCInBackground(fragments, year, materia, libro) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.warn("[extract-toc] No hay API key, saltando extracción de TOC");
+    return;
+  }
+
+  // Tomar las primeras ~30 páginas
+  const tocFragments = fragments
+    .filter((f) => f.page && f.page <= 30)
+    .sort((a, b) => a.page - b.page);
+
+  if (tocFragments.length < 3) {
+    console.warn("[extract-toc] Muy pocos fragmentos iniciales, saltando TOC");
+    return;
+  }
+
+  const tocText = tocFragments
+    .map((f) => `[Página ${f.page}]\n${f.text}`)
+    .join("\n\n---\n\n")
+    .substring(0, 15000);
+
+  console.log(`[extract-toc] Extrayendo TOC de "${libro}" (${tocFragments.length} fragmentos)`);
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 4096,
+        messages: [
+          {
+            role: "user",
+            content: `Analizá este texto de las primeras páginas de un libro de medicina. Extraé la TABLA DE CONTENIDOS con capítulos, secciones y sus páginas.
+
+Respondé SOLO con un JSON array:
+[{"title": "Nombre", "page": 123, "level": 1}, ...]
+
+level 1 = capítulo, level 2 = sección, level 3 = subsección
+
+TEXTO:
+${tocText}
+
+JSON:`,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      console.error("[extract-toc] Error API:", response.status);
+      return;
+    }
+
+    const result = await response.json();
+    const text = result.content?.[0]?.text || "";
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+
+    if (!jsonMatch) {
+      console.error("[extract-toc] No se encontró JSON en la respuesta");
+      return;
+    }
+
+    const entries = JSON.parse(jsonMatch[0])
+      .filter((e) => e.title && typeof e.page === "number")
+      .map((e) => ({ title: e.title.trim(), page: e.page, level: e.level || 1 }));
+
+    saveTOC(year, materia, libro, entries);
+    console.log(`[extract-toc] ✅ TOC extraído: ${entries.length} entradas para "${libro}"`);
+  } catch (error) {
+    console.error("[extract-toc] Error:", error.message);
+  }
+}
+
 export async function POST(request) {
   try {
     const formData = await request.formData();
@@ -146,6 +230,12 @@ export async function POST(request) {
     // Cada página se guarda como PDF individual en R2 para carga instantánea
     splitAndUploadPages(buffer, pdfKeyBase, totalPages).catch((err) =>
       console.error("[split-pages] Error fatal:", err.message)
+    );
+
+    // ── PASO 6: Extraer TOC en background ────────────────────────
+    // Usa Claude para extraer el índice del libro automáticamente
+    extractTOCInBackground(fragments, parseInt(year), materia, libro).catch((err) =>
+      console.error("[extract-toc] Error fatal:", err.message)
     );
 
     return NextResponse.json({

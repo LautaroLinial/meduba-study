@@ -7,6 +7,7 @@ import fs from "fs";
 import path from "path";
 
 const DATA_DIR = path.join(process.cwd(), "data", "materiales");
+const TOC_DIR = path.join(process.cwd(), "data", "toc");
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -340,6 +341,72 @@ export function deleteMaterial(year, materiaKey) {
     return true;
   }
   return false;
+}
+
+// ============================================================
+// BORRAR UN LIBRO ESPECÍFICO (Y SUS FRAGMENTOS)
+// ============================================================
+
+// ============================================================
+// TOC (TABLA DE CONTENIDOS) - Almacenamiento y consulta
+// ============================================================
+
+function safeFileName(name) {
+  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "_").substring(0, 80);
+}
+
+function getTOCPath(year, materiaKey, libroName) {
+  return path.join(TOC_DIR, `${year}_${materiaKey}_${safeFileName(libroName)}.json`);
+}
+
+/**
+ * Guarda el TOC estructurado de un libro.
+ * @param {number} year
+ * @param {string} materiaKey
+ * @param {string} libroName
+ * @param {Array<{title: string, page: number, level?: number}>} entries
+ */
+export function saveTOC(year, materiaKey, libroName, entries) {
+  ensureDir(TOC_DIR);
+  const filePath = getTOCPath(year, materiaKey, libroName);
+  const data = {
+    libro: libroName,
+    extractedAt: new Date().toISOString(),
+    entries: entries,
+  };
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+  console.log(`[TOC] Guardado: ${libroName} con ${entries.length} entradas`);
+  return data;
+}
+
+/**
+ * Carga el TOC de un libro. Retorna null si no existe.
+ */
+export function loadTOC(year, materiaKey, libroName) {
+  const filePath = getTOCPath(year, materiaKey, libroName);
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lista todos los TOCs disponibles.
+ */
+export function listTOCs() {
+  ensureDir(TOC_DIR);
+  return fs.readdirSync(TOC_DIR).filter(f => f.endsWith(".json")).map(f => {
+    try {
+      const raw = fs.readFileSync(path.join(TOC_DIR, f), "utf-8");
+      const data = JSON.parse(raw);
+      return { file: f, libro: data.libro, entries: data.entries?.length || 0, extractedAt: data.extractedAt };
+    } catch {
+      return { file: f, libro: "?", entries: 0 };
+    }
+  });
 }
 
 // ============================================================

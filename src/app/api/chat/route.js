@@ -4,8 +4,9 @@
 
 import { buildSystemPrompt, buildQueryPrompt } from "@/lib/systemPrompt";
 import { getMateria, CURRICULUM, getAllLibros } from "@/lib/curriculum";
-import { searchMaterial, expandQuery } from "@/lib/materialStore";
+import { searchMaterial, expandQuery, loadTOC } from "@/lib/materialStore";
 import { semanticSearch, hasEmbeddings } from "@/lib/embeddings";
+import { expandQueryWithAI } from "@/lib/queryExpander";
 import fs from "fs";
 import path from "path";
 
@@ -42,8 +43,8 @@ export async function POST(request) {
     const queryWords = message.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[?¿!¡.,;:]/g, "").split(/\s+/).filter(w => w.length > 2 && !stopWords.includes(w));
     const queryPhrase = queryWords.join(" ");
 
-    // Expandir query con sinónimos médicos para mejor cobertura
-    const expandedWords = expandQuery(message);
+    // Expandir query con sinónimos usando Claude AI (fallback a diccionario estático)
+    const expandedWords = await expandQueryWithAI(message, apiKey);
 
     // Helper: stem matching — "vasculo" matchea "vascular", "vasculonervioso", etc.
     function stemMatch(word, text) {
@@ -105,6 +106,35 @@ export async function POST(request) {
       }
     }
 
+    // ── TOC PRIORITY: Boost para páginas que son el tema principal ──
+    const tocBoost = new Map(); // page → boost score
+    const librosInFragments = [...new Set(allFragments.map(f => f.libro))];
+    for (const libroName of librosInFragments) {
+      const toc = loadTOC(year, materiaKey, libroName);
+      if (!toc || !toc.entries) continue;
+
+      for (const entry of toc.entries) {
+        const titleNorm = entry.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+        const titleWords = titleNorm.split(/\s+/).filter(w => w.length > 2);
+
+        // Matchear query words + expanded words contra el título del TOC
+        const allSearchTerms = [...new Set([...queryWords, ...expandedWords])];
+        const matchCount = allSearchTerms.filter(w => stemMatch(w, titleNorm)).length;
+        const matchRatio = matchCount / Math.max(queryWords.length, 1);
+
+        if (matchRatio >= 0.5 && matchCount >= 2) {
+          const page = entry.page;
+          const boost = Math.round(150 * matchRatio);
+          // Boost para la página del TOC y las ~5 siguientes (un capítulo suele abarcar varias)
+          for (let p = page; p <= page + 5; p++) {
+            const currentBoost = tocBoost.get(`${libroName}_${p}`) || 0;
+            const pageBoost = p === page ? boost : Math.round(boost * 0.6); // Páginas siguientes reciben menos
+            tocBoost.set(`${libroName}_${p}`, Math.max(currentBoost, pageBoost));
+          }
+        }
+      }
+    }
+
     const scoreMap = new Map();
     [...exactMatches, ...titleMatches].forEach(r => {
       const current = scoreMap.get(r.id) || { id: r.id, page: r.page, libro: r.libro, score: 0 };
@@ -121,6 +151,20 @@ export async function POST(request) {
       current.score += 40 * r.score;
       scoreMap.set(r.id, current);
     });
+
+    // Aplicar TOC boost a todos los fragmentos en el scoreMap
+    if (tocBoost.size > 0) {
+      // Primero, asegurar que fragmentos con TOC boost estén en el scoreMap
+      allFragments.forEach(f => {
+        const key = `${f.libro}_${f.page}`;
+        const boost = tocBoost.get(key);
+        if (boost) {
+          const current = scoreMap.get(f.id) || { id: f.id, page: f.page, libro: f.libro, score: 0 };
+          current.score += boost;
+          scoreMap.set(f.id, current);
+        }
+      });
+    }
 
     const rankedIds = Array.from(scoreMap.values()).sort((a, b) => b.score - a.score).slice(0, 6);
 

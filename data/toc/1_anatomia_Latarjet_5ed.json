@@ -1,0 +1,661 @@
+{
+  "libro": "Latarjet 5ed",
+  "extractedAt": "2026-03-13T13:37:30.269Z",
+  "entries": [
+    {
+      "title": "Capítulo 1: Generalidades de anatomía humana y del esqueleto",
+      "page": 3,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 2: Artrología. Generalidades",
+      "page": 14,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 3: Miología. Generalidades",
+      "page": 21,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 4: Esqueleto de la columna vertebral",
+      "page": 29,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 5: Articulaciones de la columna vertebral",
+      "page": 47,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 6: Músculos propios del dorso",
+      "page": 54,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 7: Músculos de la espalda",
+      "page": 59,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 8: Anatomía funcional de la columna vertebral y del tronco",
+      "page": 61,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 9: Huesos del neurocráneo",
+      "page": 67,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 10: Huesos de la cara",
+      "page": 84,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 11: Esqueleto de la cabeza en general",
+      "page": 93,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 12: Articulaciones de la cabeza",
+      "page": 102,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 13: El cráneo y la cara desde el punto de vista antropológico",
+      "page": 103,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 14: Desarrollo de la cabeza ósea",
+      "page": 105,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 15: Arquitectura de la cabeza ósea",
+      "page": 107,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 16: Anatomía radiológica del esqueleto craneofacial",
+      "page": 110,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 17: Hueso hioides",
+      "page": 113,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 18: Articulaciones sinoviales del cráneo",
+      "page": 117,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 19: Músculos del cuello",
+      "page": 121,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 20: Fascias del cuello",
+      "page": 133,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 21: Espacios del cuello",
+      "page": 135,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 22: Estática y movimientos de la cabeza sobre la columna vertebral",
+      "page": 136,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 23: Médula espinal y raíces espinales",
+      "page": 141,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 24: Encéfalo. Generalidades y definiciones",
+      "page": 151,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 25: Meninges craneales",
+      "page": 196,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 26: Vascularización del encéfalo",
+      "page": 211,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 27: Relaciones del cerebro",
+      "page": 227,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 28: Exploración del encéfalo en el ser vivo",
+      "page": 230,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 29: Configuración interna y sistematización de la médula espinal",
+      "page": 243,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 30: Configuración interna y sistematización del tronco encefálico",
+      "page": 254,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 31: Configuración interna y sistematización del cerebelo",
+      "page": 262,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 32: Configuración interna y sistematización del prosencéfalo",
+      "page": 267,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 33: Vías de conducción",
+      "page": 275,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 34: Formación reticular",
+      "page": 282,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 37: Nervios espinales",
+      "page": 343,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 38: Ramos posteriores de los nervios espinales",
+      "page": 345,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 39: Ramos anteriores de los nervios espinales",
+      "page": 348,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 43: Órbita",
+      "page": 389,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 44: Globo ocular",
+      "page": 391,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 45: Estructuras accesorias del ojo",
+      "page": 400,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 46: Vías ópticas y centros de la visión",
+      "page": 419,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 47: Oído externo",
+      "page": 423,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 48: Oído medio",
+      "page": 428,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 49: Oído interno",
+      "page": 437,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 50: Nervio vestibulococlear",
+      "page": 443,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 51: Vías cocleares",
+      "page": 445,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 52: Vías vestibulares",
+      "page": 447,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 53: Tegumento común. Sentido del tacto",
+      "page": 449,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 54: Huesos del miembro superior",
+      "page": 455,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 55: Cintura pectoral",
+      "page": 471,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 56: Articulación del codo. Músculos del brazo",
+      "page": 501,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 57: Antebrazo. Aparato de la pronosupinación",
+      "page": 517,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 58: Mano",
+      "page": 526,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 59: Arterias del miembro superior",
+      "page": 577,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 60: Venas del miembro superior",
+      "page": 594,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 61: Vasos y nodos linfáticos del miembro superior",
+      "page": 598,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 62: Nervios del miembro superior",
+      "page": 601,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 63: Huesos del miembro inferior",
+      "page": 633,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 64: Cintura pélvica",
+      "page": 666,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 65: Rodilla. Músculos del muslo",
+      "page": 695,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 66: Articulaciones y músculo de la pierna y el pie",
+      "page": 728,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 67: Arterias del miembro inferior",
+      "page": 772,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 68: Venas del miembro inferior",
+      "page": 791,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 69: Vasos y nodos linfáticos del miembro inferior",
+      "page": 797,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 70: Nervios del plexo lumbosacro",
+      "page": 801,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 71: Esqueleto del tórax",
+      "page": 827,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 72: Articulaciones del tórax",
+      "page": 833,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 73: Tórax osteocartilaginoso en general",
+      "page": 837,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 74: Músculos del tórax",
+      "page": 842,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 75: Diafragma",
+      "page": 845,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 76: Corazón",
+      "page": 860,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 77: Pericardio",
+      "page": 886,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 78: Circulación fetal",
+      "page": 907,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 79: Tronco pulmonar",
+      "page": 909,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 80: Anatomía general de los sistemas arterial y venoso de la circulación mayor",
+      "page": 915,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 81: Aorta",
+      "page": 921,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 82: Tronco braquiocefálico",
+      "page": 930,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 83: Arterias carótidas",
+      "page": 932,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 84: Arteria subclavia",
+      "page": 950,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 85: Aorta torácica",
+      "page": 962,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 86: Aorta abdominal",
+      "page": 965,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 87: Sistema de la vena cava superior",
+      "page": 977,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 88: Sistema de la vena cava inferior",
+      "page": 995,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 89: Venas de la columna vertebral y anastomosis intercavas",
+      "page": 1002,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 91: Nariz. Cavidades nasales. Senos paranasales. Órgano olfatorio",
+      "page": 1027,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 92: Laringe",
+      "page": 1043,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 93: Tráquea",
+      "page": 1071,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 94: Pulmones",
+      "page": 1082,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 95: Árbol bronquial",
+      "page": 1089,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 96: Vascularización e inervación pulmonares",
+      "page": 1096,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 97: Lóbulos y segmentos pulmonares",
+      "page": 1117,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 98: Distribución intraparenquimatosa pulmonar",
+      "page": 1127,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 99: Pleura",
+      "page": 1129,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 100: Relaciones de los pulmones y de la pleura",
+      "page": 1134,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 101: Anatomía radiológica del sistema respiratorio",
+      "page": 1142,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 102: Anatomía funcional del sistema respiratorio",
+      "page": 1145,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 103: Boca y anexos",
+      "page": 1151,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 104: Faringe",
+      "page": 1203,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 105: Esófago",
+      "page": 1219,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 107: Estómago",
+      "page": 1265,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 108: Duodeno",
+      "page": 1283,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 109: Hígado",
+      "page": 1300,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 110: Vías biliares",
+      "page": 1325,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 111: Páncreas",
+      "page": 1333,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 112: Bazo",
+      "page": 1344,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 113: Formaciones peritoneales supramesocólicas del abdomen",
+      "page": 1353,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 114: Intestino delgado",
+      "page": 1363,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 115: Intestino grueso",
+      "page": 1377,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 116: Riñón",
+      "page": 1427,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 117: Uréter",
+      "page": 1443,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 118: Conjunto renoureteral en el ser vivo",
+      "page": 1452,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 119: Vejiga urinaria",
+      "page": 1456,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 120: Uretra",
+      "page": 1469,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 121: Testículo y epidídimo",
+      "page": 1483,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 122: Vías espermáticas",
+      "page": 1496,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 123: Pene",
+      "page": 1503,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 124: Próstata y glándulas bulbouretrales",
+      "page": 1510,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 125: Ovario",
+      "page": 1521,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 126: Trompa uterina",
+      "page": 1527,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 127: Útero",
+      "page": 1530,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 128: Ligamento ancho del útero",
+      "page": 1544,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 129: Vagina",
+      "page": 1547,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 130: Genitales externos femeninos",
+      "page": 1553,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 131: Diafragma pélvico y periné",
+      "page": 1558,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 132: Mama",
+      "page": 1574,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 133: Glándula tiroides",
+      "page": 1583,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 134: Glándulas paratiroides",
+      "page": 1594,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 135: Timo",
+      "page": 1596,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 136: Glándulas suprarrenales",
+      "page": 1598,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 137: Órganos paraganglionares",
+      "page": 1606,
+      "level": 1
+    },
+    {
+      "title": "Capítulo 138: Hipófisis",
+      "page": 1608,
+      "level": 1
+    }
+  ]
+}
