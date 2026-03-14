@@ -87,12 +87,25 @@ export async function POST(request) {
     const exactMatches = [];
     const searchWords = [...new Set([...queryWords, ...expandedWords])];
     const expandedOnly = searchWords.filter(w => !queryWords.includes(w));
+
+    // Helper: detectar si la frase en posición X es un heading (no body text)
+    // Un heading tiene antes solo número de página + nombre de sección: "270 Sistema nervioso central"
+    // Body text tiene conectores de oración: "a la vascularización de la pared y de la"
+    function isHeadingContext(text, phrasePos) {
+      if (phrasePos < 0 || phrasePos >= 120) return false;
+      const before = text.substring(0, phrasePos);
+      const sentenceMarkers = [" de la ", " del ", " y de ", " por ", " en la ", " que ", " con el ", " con la ", " a la ", " en el "];
+      return !sentenceMarkers.some(m => before.includes(m));
+    }
+
     allFragments.forEach(f => {
       const textLower = f.text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
 
-      // Frase completa → score máximo
+      // Frase completa
       if (textLower.includes(queryPhrase)) {
-        exactMatches.push({ id: f.id, page: f.page, libro: f.libro, score: 100 });
+        const phrasePos = textLower.indexOf(queryPhrase);
+        const headingBonus = isHeadingContext(textLower, phrasePos) ? 80 : 0;
+        exactMatches.push({ id: f.id, page: f.page, libro: f.libro, score: 100 + headingBonus });
         return;
       }
 
@@ -102,15 +115,23 @@ export async function POST(request) {
       const totalHits = queryHits + expandedHits;
 
       if (totalHits >= 2) {
-        // Query words: 30pts c/u, expanded: 3pts c/u (cap 30)
-        const score = (queryHits * 30) + Math.min(expandedHits * 3, 30);
+        let score = (queryHits * 30) + Math.min(expandedHits * 3, 30);
+        // Heading bonus: todos los queryWords en los primeros 120 chars + contexto de heading
+        const headText = textLower.substring(0, 120);
+        if (queryWords.length >= 2 && queryWords.every(w => stemMatch(w, headText))) {
+          const sentenceMarkers = [" de la ", " del ", " y de ", " por ", " en la ", " que "];
+          if (!sentenceMarkers.some(m => headText.includes(m))) {
+            score += 60;
+          }
+        }
         exactMatches.push({ id: f.id, page: f.page, libro: f.libro, score });
       }
     });
 
-    // Title matches con scoring ponderado
+    // Title matches: buscar en primeras líneas O en los primeros 200 chars del texto
     const titleMatches = [];
     allFragments.forEach(f => {
+      // Estrategia 1: primeras líneas cortas (para fragmentos con newlines)
       const lines = f.text.split("\n").slice(0, 5);
       for (const line of lines) {
         if (line.length >= 200) continue;
@@ -121,7 +142,18 @@ export async function POST(request) {
         if (totalHits >= 2) {
           const score = (queryHits * 35) + Math.min(expandedHits * 3, 25);
           titleMatches.push({ id: f.id, page: f.page, libro: f.libro, score });
-          break;
+          return; // ya encontró título, salir
+        }
+      }
+      // Estrategia 2: primeros 150 chars (para fragmentos de 1 sola línea larga)
+      // Solo si el contexto parece heading (sin conectores de oración antes de los keywords)
+      if (f.text.split("\n").length <= 2) {
+        const headText = f.text.substring(0, 150).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+        const queryHits = queryWords.filter(w => stemMatch(w, headText)).length;
+        const expandedHits = expandedOnly.filter(w => stemMatch(w, headText)).length;
+        if (queryHits + expandedHits >= 2 && isHeadingContext(headText, headText.indexOf(queryWords[0]))) {
+          const score = (queryHits * 35) + Math.min(expandedHits * 3, 25);
+          titleMatches.push({ id: f.id, page: f.page, libro: f.libro, score });
         }
       }
     });
