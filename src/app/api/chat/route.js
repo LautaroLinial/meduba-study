@@ -4,7 +4,7 @@
 
 import { buildSystemPrompt, buildQueryPrompt } from "@/lib/systemPrompt";
 import { getMateria, CURRICULUM, getAllLibros } from "@/lib/curriculum";
-import { searchMaterial, expandQuery, loadTOC } from "@/lib/materialStore";
+import { searchMaterial, expandQuery, loadTOC, getChapterForPage } from "@/lib/materialStore";
 import { semanticSearch, hasEmbeddings } from "@/lib/embeddings";
 import { expandQueryWithAI } from "@/lib/queryExpander";
 import fs from "fs";
@@ -227,38 +227,69 @@ export async function POST(request) {
       }
     }
 
-    const scoreMap = new Map();
-    [...exactMatches, ...titleMatches].forEach(r => {
-      const current = scoreMap.get(r.id) || { id: r.id, page: r.page, libro: r.libro, score: 0 };
-      current.score += r.score;
-      scoreMap.set(r.id, current);
-    });
-    filteredKeywords.forEach((r, i) => {
-      const current = scoreMap.get(r.id) || { id: r.id, page: r.page, libro: r.libro, score: 0 };
-      current.score += 50 - (i * 4);
-      scoreMap.set(r.id, current);
-    });
-    semanticResults.forEach((r) => {
-      const current = scoreMap.get(r.id) || { id: r.id, page: r.page, libro: r.libro, score: 0 };
-      current.score += 40 * r.score;
-      scoreMap.set(r.id, current);
-    });
+    // ── RECIPROCAL RANK FUSION (RRF) ──
+    // Combina rankings de diferentes métodos de búsqueda con pesos.
+    // Fórmula: score = Σ peso × 1/(rank + k), donde k=60
+    const k = 60;
+    const rrfScores = new Map(); // id → { id, page, libro, score }
 
-    // Aplicar TOC boost a todos los fragmentos en el scoreMap
-    if (tocBoost.size > 0) {
-      // Primero, asegurar que fragmentos con TOC boost estén en el scoreMap
-      allFragments.forEach(f => {
-        const key = `${f.libro}_${f.page}`;
-        const boost = tocBoost.get(key);
-        if (boost) {
-          const current = scoreMap.get(f.id) || { id: f.id, page: f.page, libro: f.libro, score: 0 };
-          current.score += boost;
-          scoreMap.set(f.id, current);
-        }
+    function addRRFScores(rankedList, weight) {
+      rankedList.forEach((item, rank) => {
+        const current = rrfScores.get(item.id) || { id: item.id, page: item.page, libro: item.libro, score: 0 };
+        current.score += weight * (1 / (rank + k));
+        rrfScores.set(item.id, current);
       });
     }
 
-    const rankedIds = Array.from(scoreMap.values()).sort((a, b) => b.score - a.score).slice(0, 10);
+    // Ordenar cada lista por su propio score antes de RRF
+    const sortedExact = [...exactMatches].sort((a, b) => b.score - a.score);
+    const sortedTitle = [...titleMatches].sort((a, b) => b.score - a.score);
+    const sortedKeyword = filteredKeywords; // ya viene ordenado
+    const sortedSemantic = [...semanticResults].sort((a, b) => b.score - a.score);
+
+    // TOC boost: crear lista ordenada de fragmentos que recibieron boost
+    const tocBoostedFragments = [];
+    if (tocBoost.size > 0) {
+      allFragments.forEach(f => {
+        const boost = tocBoost.get(`${f.libro}_${f.page}`);
+        if (boost) tocBoostedFragments.push({ id: f.id, page: f.page, libro: f.libro, score: boost });
+      });
+      tocBoostedFragments.sort((a, b) => b.score - a.score);
+    }
+
+    // Aplicar RRF con pesos por método
+    addRRFScores(sortedExact, 2.0);     // Exact match: señal más fuerte
+    addRRFScores(sortedTitle, 1.5);     // Title/heading match
+    addRRFScores(tocBoostedFragments, 1.5); // TOC boost
+    addRRFScores(sortedKeyword, 1.0);   // Keyword search
+    addRRFScores(sortedSemantic, 1.0);  // Semantic search
+
+    // Ranking final
+    let rankedIds = Array.from(rrfScores.values()).sort((a, b) => b.score - a.score).slice(0, 12);
+
+    // ── EXPANSIÓN POR PÁGINAS VECINAS ──
+    // Si encontramos pág. 270, incluir pág. 271 si tiene algún score (mismo tema, distinta terminología)
+    const rankedPageSet = new Set(rankedIds.map(r => `${r.libro}_${r.page}`));
+    const neighbors = [];
+    rankedIds.forEach(r => {
+      for (const delta of [-1, 1]) {
+        const neighborPage = r.page + delta;
+        const neighborKey = `${r.libro}_${neighborPage}`;
+        if (!rankedPageSet.has(neighborKey)) {
+          // Buscar fragmentos de la página vecina que tengan ALGÚN score en RRF
+          const neighborFrags = allFragments.filter(f => f.page === neighborPage && f.libro === r.libro);
+          neighborFrags.forEach(nf => {
+            const nfScore = rrfScores.get(nf.id);
+            if (nfScore && nfScore.score > 0) {
+              neighbors.push(nfScore);
+              rankedPageSet.add(neighborKey);
+            }
+          });
+        }
+      }
+    });
+    // Agregar vecinos al final, mantener top 15
+    rankedIds = [...rankedIds, ...neighbors].sort((a, b) => b.score - a.score).slice(0, 15);
 
     const relevantFragments = rankedIds.map(r => {
         const frag = allFragments.find(f => f.id === r.id);
@@ -267,9 +298,21 @@ export async function POST(request) {
 
     let materialContext = "";
     if (relevantFragments.length > 0) {
-      materialContext = relevantFragments.map((f, i) => {
-          const pageInfo = f.page ? ` (Página ${f.page})` : "";
-          return `--- Fragmento ${i + 1}: ${f.libro}${pageInfo} [ID:${f.id}] ---\n${f.text.substring(0, 1500)}`;
+      // Cargar TOC para enriquecer fragmentos con contexto de capítulo
+      const tocCache = new Map();
+      materialContext = relevantFragments.map((f) => {
+          const pageInfo = f.page ? `, pág. ${f.page}` : "";
+          // Agregar contexto de capítulo si hay TOC disponible
+          let chapterCtx = "";
+          if (f.libro && f.page) {
+            if (!tocCache.has(f.libro)) {
+              const toc = loadTOC(year, materiaKey, f.libro);
+              tocCache.set(f.libro, toc?.entries || []);
+            }
+            const chapter = getChapterForPage(f.page, tocCache.get(f.libro));
+            if (chapter) chapterCtx = `[${chapter}] `;
+          }
+          return `--- ${f.libro}${pageInfo} ---\n${chapterCtx}${f.text.substring(0, 1500)}`;
         }).join("\n\n");
     }
 

@@ -394,6 +394,23 @@ export function loadTOC(year, materiaKey, libroName) {
 }
 
 /**
+ * Dado un número de página y las entries del TOC, retorna el capítulo/sección más cercano.
+ * Busca el último entry cuya página sea <= la página dada.
+ */
+export function getChapterForPage(page, tocEntries) {
+  if (!tocEntries || tocEntries.length === 0) return null;
+  let best = null;
+  for (const entry of tocEntries) {
+    if (entry.page <= page) {
+      best = entry;
+    } else {
+      break; // Las entries están ordenadas por página
+    }
+  }
+  return best ? best.title : null;
+}
+
+/**
  * Lista todos los TOCs disponibles.
  */
 export function listTOCs() {
