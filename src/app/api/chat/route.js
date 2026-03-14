@@ -65,7 +65,14 @@ export async function POST(request) {
       allFragments = allFragments.filter(f => activeLibros.includes(f.libro));
     }
 
-    const stopWords = ["que", "es", "el", "la", "los", "las", "un", "una", "de", "del", "en", "por", "para", "como", "donde", "cual", "cuales", "me", "te", "se", "con", "sin", "sobre", "entre", "hacia", "desde", "hay", "son", "tiene", "puede", "hacer", "ser", "estar", "tener", "haber", "esto", "esta", "estos", "estas", "ese", "esa", "esos", "esas", "aquel", "aquella", "describí", "describi", "describime", "explicame", "explica", "contame", "decime", "qué", "cómo", "cuál", "dónde", "quiero", "saber", "conocer"];
+    const stopWords = [
+      // Artículos, preposiciones, pronombres
+      "que", "es", "el", "la", "los", "las", "un", "una", "de", "del", "en", "por", "para", "como", "donde", "cual", "cuales", "me", "te", "se", "con", "sin", "sobre", "entre", "hacia", "desde", "hay", "son", "tiene", "puede", "hacer", "ser", "estar", "tener", "haber", "esto", "esta", "estos", "estas", "ese", "esa", "esos", "esas", "aquel", "aquella",
+      // Verbos de pregunta / imperativo (cómo pregunta el alumno)
+      "describí", "describi", "describime", "explicame", "explica", "contame", "decime", "qué", "cómo", "cuál", "dónde", "quiero", "saber", "conocer",
+      // Palabras estructurales de pregunta (no aportan al tema médico)
+      "elementos", "componen", "compone", "componentes", "forman", "forma", "formas", "partes", "parte", "tipos", "tipo", "cuantos", "cuantas", "cuanto", "cuanta", "cuales", "funcion", "función", "funciones", "caracteristicas", "características", "relacion", "relaciones", "diferencia", "diferencias", "importancia", "principal", "principales", "denomina", "define", "definicion", "nombre", "nombres", "llama", "cual", "como", "cuando", "donde", "porque", "sino", "tambien", "ademas", "cada", "todo", "toda", "todos", "todas", "otro", "otra", "otros", "otras", "mas", "menos", "muy", "bien", "mal", "aqui", "ahi", "alla",
+    ];
 
     const queryWords = message.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[?¿!¡.,;:]/g, "").split(/\s+/).filter(w => w.length > 2 && !stopWords.includes(w));
     const queryPhrase = queryWords.join(" ");
