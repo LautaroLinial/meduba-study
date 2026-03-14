@@ -258,7 +258,7 @@ export async function POST(request) {
       });
     }
 
-    const rankedIds = Array.from(scoreMap.values()).sort((a, b) => b.score - a.score).slice(0, 6);
+    const rankedIds = Array.from(scoreMap.values()).sort((a, b) => b.score - a.score).slice(0, 10);
 
     const relevantFragments = rankedIds.map(r => {
         const frag = allFragments.find(f => f.id === r.id);
