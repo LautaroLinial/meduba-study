@@ -1,6 +1,6 @@
 // ============================================================
-// QUERY EXPANDER - Expansión inteligente de queries con Claude
-// Reemplaza el diccionario estático de sinónimos con AI
+// QUERY EXPANDER - Expansión inteligente de queries con LLM
+// Usa OpenRouter (modelos gratuitos) con fallback a diccionario estático
 // ============================================================
 
 import { expandQuery as expandQueryStatic } from "./materialStore";
@@ -8,19 +8,25 @@ import { expandQuery as expandQueryStatic } from "./materialStore";
 // Cache para evitar llamadas repetidas a la API
 const queryCache = new Map();
 const MAX_CACHE = 100;
-let _aiDisabled = false; // Se activa si la API no tiene créditos
+let _aiDisabled = false; // Se activa si la API falla repetidamente
+let _failCount = 0;      // Contador de fallos consecutivos
 
 /**
- * Expande una query médica con sinónimos usando Claude Haiku.
+ * Expande una query médica con sinónimos usando OpenRouter (GLM 4.5 Air gratis).
  * Si falla o tarda más de 10s, cae al diccionario estático.
  *
  * @param {string} query - La pregunta del usuario
- * @param {string} apiKey - API key de Anthropic
+ * @param {string} [_apiKey] - Deprecated, se usa OPENROUTER_API_KEY del env
  * @returns {string[]} - Lista de palabras expandidas (sin duplicados)
  */
-export async function expandQueryWithAI(query, apiKey) {
-  // Si la AI fue desactivada (sin créditos), ir directo al fallback
+export async function expandQueryWithAI(query, _apiKey) {
+  // Si la AI fue desactivada por fallos repetidos, ir directo al fallback
   if (_aiDisabled) {
+    return expandQueryStatic(query);
+  }
+
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
+  if (!openrouterKey) {
     return expandQueryStatic(query);
   }
 
@@ -35,15 +41,16 @@ export async function expandQueryWithAI(query, apiKey) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000); // 10s max
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
+        "Authorization": `Bearer ${openrouterKey}`,
+        "HTTP-Referer": process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001",
+        "X-Title": "MedUBA Study",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
+        model: "z-ai/glm-4.5-air:free",
         max_tokens: 300,
         messages: [
           {
@@ -59,23 +66,34 @@ export async function expandQueryWithAI(query, apiKey) {
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => "");
-      console.warn("[queryExpander] API error, falling back to static:", response.status);
-      // Si no hay créditos, desactivar llamadas futuras para no perder 10s por request
-      if (errorBody.includes("credit balance is too low")) {
-        console.warn("[queryExpander] No credits — desactivando AI expansion para esta sesión");
+      console.warn("[queryExpander] API error, falling back to static:", response.status, errorBody.slice(0, 200));
+      _failCount++;
+      if (_failCount >= 3) {
+        console.warn("[queryExpander] 3 fallos consecutivos — desactivando AI expansion para esta sesión");
         _aiDisabled = true;
       }
       return expandQueryStatic(query);
     }
 
+    // Reset fail counter on success
+    _failCount = 0;
+
     const data = await response.json();
-    const text = data.content?.[0]?.text || "";
+    const text = data.choices?.[0]?.message?.content || "";
+
+    // Si el modelo no devolvió nada útil, fallback
+    if (!text || text.length < 5) {
+      console.warn("[queryExpander] Respuesta vacía del modelo, fallback a estático");
+      return expandQueryStatic(query);
+    }
+
+    console.log(`[queryExpander] AI raw response (${text.length} chars): ${text.slice(0, 200)}`);
 
     // Parsear la respuesta: esperamos palabras/frases separadas por coma
     const aiWords = text
-      .split(",")
-      .map((w) => w.trim().toLowerCase())
-      .filter((w) => w.length > 2)
+      .split(/[,\n;]+/)
+      .map((w) => w.trim().toLowerCase().replace(/^[-•\d.]+\s*/, ""))
+      .filter((w) => w.length > 2 && w.length < 60)
       .map((w) => w.normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
 
     // Combinar con las palabras originales del query
@@ -114,6 +132,11 @@ export async function expandQueryWithAI(query, apiKey) {
       console.warn("[queryExpander] Timeout (10s), falling back to static");
     } else {
       console.warn("[queryExpander] Error, falling back to static:", error.message);
+    }
+    _failCount++;
+    if (_failCount >= 3) {
+      console.warn("[queryExpander] 3 fallos consecutivos — desactivando AI expansion");
+      _aiDisabled = true;
     }
     return expandQueryStatic(query);
   }

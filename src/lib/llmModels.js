@@ -80,6 +80,18 @@ export const LLM_MODELS = {
     description: "Gratis. Bueno para tareas generales. Límite: 200 req/día.",
     badge: "Gratis",
   },
+  "hunter-alpha": {
+    id: "hunter-alpha",
+    name: "Hunter Alpha",
+    provider: "openrouter",
+    model: "openrouter/hunter-alpha",
+    inputCost: 0,
+    outputCost: 0,
+    maxTokens: 32000,
+    quality: 4,
+    description: "Gratis. 1T+ params, contexto 1M. Nuevo, en prueba. Límite: 200 req/día.",
+    badge: "Gratis ✨",
+  },
 };
 
 // Modelo por defecto

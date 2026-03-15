@@ -293,22 +293,30 @@ function ChatContent() {
     html = html.replace(citationRegex, (match, libroRaw, pageNum) => {
       const libro = libroRaw.trim();
       const page = pageNum.trim().split(/[-–]/)[0].trim();
-      return `<button class="citation-btn" data-libro="${libro}" data-page="${page}" data-msgindex="${messageIndex}" style="display:inline-flex;align-items:center;gap:6px;background:${colors.accent}15;color:${colors.accent};padding:6px 12px;border-radius:8px;border:1px solid ${colors.accent}30;cursor:pointer;font-size:12px;font-family:inherit;transition:all 0.2s;margin:4px 2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);">📖 ${libro}, pág. ${pageNum}</button>`;
+      return `<button class="citation-btn" data-libro="${libro}" data-page="${page}" data-msgindex="${messageIndex}" style="display:inline-flex;align-items:center;gap:6px;background:${colors.accent}15;color:${colors.accent};padding:6px 12px;border-radius:8px;border:1px solid ${colors.accent}30;cursor:pointer;font-size:12px;font-family:inherit;transition:all 0.2s;margin:4px 2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);user-select:none;pointer-events:auto;">📖 ${libro}, pág. ${pageNum}</button>`;
     });
     return html;
   }
 
-  const handleMessageClick = (e) => {
+  // Ref para acceder a messages actualizado desde event handlers
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+
+  // Usar onMouseDown en vez de onClick para que funcione durante streaming
+  // (React re-renderiza el innerHTML en cada chunk, lo que puede invalidar el click)
+  const handleMessageClick = useCallback((e) => {
     const btn = e.target.closest(".citation-btn");
     if (btn) {
+      e.preventDefault();
+      e.stopPropagation();
       const libro = btn.getAttribute("data-libro");
       const page = btn.getAttribute("data-page");
       const msgIndex = parseInt(btn.getAttribute("data-msgindex"));
-      const msg = messages[msgIndex];
+      const msg = messagesRef.current[msgIndex];
       const fragmentText = msg?.usedFragments?.find(f => f.page === parseInt(page))?.text || "";
       if (libro && page) openPage(libro, parseInt(page), fragmentText);
     }
-  };
+  }, [openPage]);
 
   const lastUserIndex = messages.map(m => m.role).lastIndexOf("user");
 
@@ -402,7 +410,7 @@ function ChatContent() {
             <div key={i} ref={i === lastUserIndex ? latestQuestionRef : null} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start", marginBottom: "20px", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
               <div style={{ display: "flex", maxWidth: "100%" }}>
                 {msg.role === "assistant" && <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", color: "white", flexShrink: 0, marginRight: "10px", marginTop: "2px" }}>✨</div>}
-                <div onClick={msg.role === "assistant" ? handleMessageClick : undefined} style={{
+                <div onMouseDown={msg.role === "assistant" ? handleMessageClick : undefined} style={{
                   maxWidth: "85%",
                   background: msg.role === "user" ? `${colors.accent}12` : "transparent",
                   padding: msg.role === "user" ? "10px 16px" : "2px 0 2px 12px",
