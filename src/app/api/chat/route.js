@@ -41,7 +41,14 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request) {
   try {
-    const { message, year, materia: materiaKey, history, activeLibros } = await request.json();
+    const body = await request.json();
+    // Support both { message: "..." } and { messages: [...] } formats
+    const message = body.message || (Array.isArray(body.messages) && body.messages.length > 0 ? body.messages[body.messages.length - 1].content : null);
+    const { year, materia: materiaKey, history, activeLibros } = body;
+
+    if (!message || typeof message !== "string") {
+      return new Response(JSON.stringify({ error: "Mensaje no proporcionado o formato inválido." }), { status: 400 });
+    }
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
