@@ -43,3 +43,5 @@ data/pdfs/
 data/page-cache/
 data/materiales/
 data/pdf-cache/
+.claude/worktrees/
+compress
