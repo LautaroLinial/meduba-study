@@ -1,6 +1,9 @@
 import fs from "fs";
 import path from "path";
 
+// Workaround: Node.js fetch falla con certificados TLS en ciertos entornos (Hamachi/VPN)
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 // Si estamos en un worktree (.claude/worktrees/...), cargamos el .env.local del repo principal
 const localEnv = path.join(process.cwd(), ".env.local");
 if (!fs.existsSync(localEnv)) {

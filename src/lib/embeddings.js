@@ -11,10 +11,35 @@ const EMBEDDINGS_DIR = path.join(process.cwd(), "data", "embeddings");
 
 let embeddingPipeline = null;
 
+// Cache de embeddings en memoria para evitar leer JSON de 22MB en cada búsqueda
+const embeddingsCache = new Map(); // key: "year_materiaKey" → { embeddings, mtime }
+
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
+}
+
+// Cargar embeddings con cache en memoria (invalida si el archivo cambió)
+function loadEmbeddingsCached(year, materiaKey) {
+  const cacheKey = `${year}_${materiaKey}`;
+  const filePath = getEmbeddingsPath(year, materiaKey);
+
+  if (!fs.existsSync(filePath)) return null;
+
+  const stat = fs.statSync(filePath);
+  const cached = embeddingsCache.get(cacheKey);
+
+  if (cached && cached.mtime >= stat.mtimeMs) {
+    return cached.data;
+  }
+
+  // Leer y cachear
+  const raw = fs.readFileSync(filePath, "utf-8");
+  const data = JSON.parse(raw);
+  embeddingsCache.set(cacheKey, { data, mtime: stat.mtimeMs });
+  console.log(`[embeddings] Cacheado en memoria: ${data.embeddings?.length || 0} vectores para ${cacheKey}`);
+  return data;
 }
 
 // Inicializar el modelo (se carga una sola vez)
@@ -34,7 +59,7 @@ async function getEmbeddingPipeline() {
 async function generateEmbedding(text) {
   const pipe = await getEmbeddingPipeline();
   // Truncar texto largo para el modelo
-  const truncated = text.substring(0, 512);
+  const truncated = text.substring(0, 1024);
   const output = await pipe(truncated, { pooling: "mean", normalize: true });
   return Array.from(output.data);
 }
@@ -78,7 +103,7 @@ export async function generateEmbeddingsForMaterial(year, materiaKey, fragments)
 
   for (let i = 0; i < fragments.length; i++) {
     const frag = fragments[i];
-    const truncated = frag.text.substring(0, 512);
+    const truncated = frag.text.substring(0, 1024);
     const output = await pipe(truncated, { pooling: "mean", normalize: true });
     const vector = Array.from(output.data);
 
@@ -97,6 +122,9 @@ export async function generateEmbeddingsForMaterial(year, materiaKey, fragments)
   data.embeddings = [...data.embeddings, ...newEmbeddings];
   fs.writeFileSync(filePath, JSON.stringify(data), "utf-8");
 
+  // Invalidar cache para que la próxima búsqueda use los nuevos
+  embeddingsCache.delete(`${year}_${materiaKey}`);
+
   console.log(`Embeddings guardados: ${newEmbeddings.length} nuevos, ${data.embeddings.length} total`);
   return newEmbeddings.length;
 }
@@ -106,22 +134,14 @@ export async function generateEmbeddingsForMaterial(year, materiaKey, fragments)
 // ============================================================
 
 export async function semanticSearch(year, materiaKey, query, topK = 8) {
-  const filePath = getEmbeddingsPath(year, materiaKey);
+  const data = loadEmbeddingsCached(year, materiaKey);
 
-  if (!fs.existsSync(filePath)) {
+  if (!data?.embeddings || data.embeddings.length === 0) {
     return [];
   }
 
   // Generar embedding de la pregunta
   const queryEmbedding = await generateEmbedding(query);
-
-  // Cargar embeddings guardados
-  const raw = fs.readFileSync(filePath, "utf-8");
-  const data = JSON.parse(raw);
-
-  if (!data.embeddings || data.embeddings.length === 0) {
-    return [];
-  }
 
   // Calcular similitud con cada fragmento
   const scored = data.embeddings.map((emb) => ({
@@ -142,9 +162,6 @@ export async function semanticSearch(year, materiaKey, query, topK = 8) {
 // ============================================================
 
 export function hasEmbeddings(year, materiaKey) {
-  const filePath = getEmbeddingsPath(year, materiaKey);
-  if (!fs.existsSync(filePath)) return false;
-  const raw = fs.readFileSync(filePath, "utf-8");
-  const data = JSON.parse(raw);
-  return data.embeddings && data.embeddings.length > 0;
+  const data = loadEmbeddingsCached(year, materiaKey);
+  return data?.embeddings && data.embeddings.length > 0;
 }

@@ -76,13 +76,18 @@ function ChatContent() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [pageModal, setPageModal] = useState(null);
   const [loadedLibros, setLoadedLibros] = useState([]);
   const [activeLibros, setActiveLibros] = useState([]);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [showModelPicker, setShowModelPicker] = useState(false);
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const latestQuestionRef = useRef(null);
+  const modelPickerRef = useRef(null);
 
   const yearData = CURRICULUM[year];
   const materia = getMateria(year, materiaKey);
@@ -103,6 +108,34 @@ function ChatContent() {
         .catch(() => {});
     }
   }, [year, materiaKey, catedraNum]);
+
+  // Cerrar model picker al hacer click fuera
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target)) {
+        setShowModelPicker(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Cargar modelos disponibles
+  useEffect(() => {
+    fetch("/api/models")
+      .then(r => r.json())
+      .then(data => {
+        setAvailableModels(data.models || []);
+        // Restaurar modelo guardado o usar default
+        const saved = localStorage.getItem("meduba_model");
+        if (saved && data.models?.some(m => m.id === saved)) {
+          setSelectedModel(saved);
+        } else {
+          setSelectedModel(data.default || "deepseek-v3");
+        }
+      })
+      .catch(() => setSelectedModel("deepseek-v3"));
+  }, []);
 
   useEffect(() => {
     if (materia) {
@@ -155,13 +188,14 @@ function ChatContent() {
     const userMessage = input.trim();
     setInput("");
 
+    // Solo agregar el mensaje del usuario — el typing indicator se muestra via isLoading
     setMessages((prev) => [
       ...prev,
       { role: "user", content: userMessage, usedFragments: [] },
-      { role: "assistant", content: "", usedFragments: [] }
     ]);
 
     setIsLoading(true);
+    setIsStreaming(false);
 
     try {
       const response = await fetch("/api/chat", {
@@ -173,6 +207,7 @@ function ChatContent() {
           materia: materiaKey,
           history: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
           activeLibros: activeLibros,
+          modelId: selectedModel,
         }),
       });
 
@@ -187,8 +222,10 @@ function ChatContent() {
       let aiText = "";
       let metadataParsed = false;
       let currentFragments = [];
+      let assistantAdded = false;
 
       setIsLoading(false);
+      setIsStreaming(true);
 
       while (!done) {
         const { value, done: readerDone } = await reader.read();
@@ -207,18 +244,29 @@ function ChatContent() {
             aiText += chunk;
           }
 
-          setMessages((prev) => {
-            const newMessages = [...prev];
-            newMessages[newMessages.length - 1] = {
-              role: "assistant", content: aiText, usedFragments: currentFragments
-            };
-            return newMessages;
-          });
+          if (!assistantAdded) {
+            // Agregar mensaje assistant cuando llega el primer chunk
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: aiText, usedFragments: currentFragments }
+            ]);
+            assistantAdded = true;
+          } else {
+            setMessages((prev) => {
+              const newMessages = [...prev];
+              newMessages[newMessages.length - 1] = {
+                role: "assistant", content: aiText, usedFragments: currentFragments
+              };
+              return newMessages;
+            });
+          }
         }
       }
+      setIsStreaming(false);
     } catch (error) {
       console.error("Error en sendMessage:", error.message);
       setIsLoading(false);
+      setIsStreaming(false);
       setMessages((prev) => {
         const newMessages = [...prev];
         newMessages[newMessages.length - 1] = {
@@ -245,22 +293,30 @@ function ChatContent() {
     html = html.replace(citationRegex, (match, libroRaw, pageNum) => {
       const libro = libroRaw.trim();
       const page = pageNum.trim().split(/[-–]/)[0].trim();
-      return `<button class="citation-btn" data-libro="${libro}" data-page="${page}" data-msgindex="${messageIndex}" style="display:inline;background:rgba(255,255,255,0.06);color:${colors.accent};padding:3px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.08);cursor:pointer;font-size:12px;font-family:inherit;transition:all 0.2s;margin:2px 0;">📖 ${libro}, pág. ${pageNum}</button>`;
+      return `<button class="citation-btn" data-libro="${libro}" data-page="${page}" data-msgindex="${messageIndex}" style="display:inline-flex;align-items:center;gap:6px;background:${colors.accent}15;color:${colors.accent};padding:6px 12px;border-radius:8px;border:1px solid ${colors.accent}30;cursor:pointer;font-size:12px;font-family:inherit;transition:all 0.2s;margin:4px 2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);user-select:none;pointer-events:auto;">📖 ${libro}, pág. ${pageNum}</button>`;
     });
     return html;
   }
 
-  const handleMessageClick = (e) => {
+  // Ref para acceder a messages actualizado desde event handlers
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+
+  // Usar onMouseDown en vez de onClick para que funcione durante streaming
+  // (React re-renderiza el innerHTML en cada chunk, lo que puede invalidar el click)
+  const handleMessageClick = useCallback((e) => {
     const btn = e.target.closest(".citation-btn");
     if (btn) {
+      e.preventDefault();
+      e.stopPropagation();
       const libro = btn.getAttribute("data-libro");
       const page = btn.getAttribute("data-page");
       const msgIndex = parseInt(btn.getAttribute("data-msgindex"));
-      const msg = messages[msgIndex];
+      const msg = messagesRef.current[msgIndex];
       const fragmentText = msg?.usedFragments?.find(f => f.page === parseInt(page))?.text || "";
       if (libro && page) openPage(libro, parseInt(page), fragmentText);
     }
-  };
+  }, [openPage]);
 
   const lastUserIndex = messages.map(m => m.role).lastIndexOf("user");
 
@@ -276,6 +332,64 @@ function ChatContent() {
             <span style={{ fontSize: "14px", color: "#a1a1aa", fontWeight: 500 }}>{materia.icon} {materia.name}</span>
           </div>
         </div>
+
+        {/* Model selector */}
+        <div ref={modelPickerRef} style={{ position: "relative" }}>
+          <button
+            onClick={() => setShowModelPicker(!showModelPicker)}
+            style={{
+              display: "flex", alignItems: "center", gap: "6px",
+              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "8px", padding: "5px 12px", cursor: "pointer", color: "#a1a1aa", fontSize: "12px",
+            }}
+          >
+            <span>🤖</span>
+            <span>{availableModels.find(m => m.id === selectedModel)?.name || "Modelo"}</span>
+            <span style={{ fontSize: "10px", color: "#52525b" }}>▼</span>
+          </button>
+
+          {showModelPicker && (
+            <div style={{
+              position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 100,
+              background: "#1a1a1e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px",
+              padding: "8px", minWidth: "320px", boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            }}>
+              <div style={{ padding: "6px 10px", fontSize: "10px", color: "#52525b", textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600 }}>
+                Seleccioná un modelo
+              </div>
+              {availableModels.map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => {
+                    setSelectedModel(m.id);
+                    localStorage.setItem("meduba_model", m.id);
+                    setShowModelPicker(false);
+                  }}
+                  style={{
+                    display: "flex", flexDirection: "column", width: "100%", textAlign: "left",
+                    padding: "10px 12px", borderRadius: "8px", border: "none", cursor: "pointer",
+                    background: m.id === selectedModel ? `${colors.accent}15` : "transparent",
+                    marginBottom: "2px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ color: "#e4e4e7", fontSize: "13px", fontWeight: 500 }}>{m.name}</span>
+                    <span style={{
+                      fontSize: "10px", padding: "2px 6px", borderRadius: "4px", fontWeight: 600,
+                      background: m.badge === "Gratis" ? "#10b98120" : m.badge === "Recomendado" ? `${colors.accent}20` : m.badge === "Premium" ? "#a855f720" : "#f59e0b20",
+                      color: m.badge === "Gratis" ? "#10b981" : m.badge === "Recomendado" ? colors.accent : m.badge === "Premium" ? "#a855f7" : "#f59e0b",
+                    }}>{m.badge}</span>
+                    {m.id === selectedModel && <span style={{ marginLeft: "auto", color: colors.accent, fontSize: "14px" }}>✓</span>}
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#71717a", marginTop: "3px", lineHeight: "1.4" }}>{m.description}</div>
+                  <div style={{ fontSize: "10px", color: "#3f3f46", marginTop: "2px" }}>
+                    {m.inputCost === 0 ? "Gratis" : `$${m.inputCost} in / $${m.outputCost} out por 1M tokens`}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </header>
 
       {/* Book chips */}
@@ -290,17 +404,41 @@ function ChatContent() {
       {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: "20px 0" }}>
         <div style={{ maxWidth: "760px", margin: "0 auto", padding: "0 20px" }}>
-          {messages.map((msg, i) => (
-            <div key={i} ref={i === lastUserIndex ? latestQuestionRef : null} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start", marginBottom: "16px", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
+          {messages.map((msg, i) => {
+            const isLastAssistant = msg.role === "assistant" && i === messages.length - 1 && isStreaming;
+            return (
+            <div key={i} ref={i === lastUserIndex ? latestQuestionRef : null} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start", marginBottom: "20px", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start" }}>
               <div style={{ display: "flex", maxWidth: "100%" }}>
-                {msg.role === "assistant" && <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "12px", color: "white", flexShrink: 0, marginRight: "10px" }}>M</div>}
-                <div onClick={msg.role === "assistant" ? handleMessageClick : undefined} style={{ maxWidth: "85%", background: msg.role === "user" ? "rgba(255,255,255,0.08)" : "transparent", padding: msg.role === "user" ? "10px 16px" : "0", borderRadius: "16px", color: "#a1a1aa", fontSize: "14px", lineHeight: "1.7", whiteSpace: "pre-wrap" }}>
-                  <div dangerouslySetInnerHTML={{ __html: msg.role === "assistant" ? formatMessageWithCitations(msg.content, i) : formatMessage(msg.content) }} />
+                {msg.role === "assistant" && <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", color: "white", flexShrink: 0, marginRight: "10px", marginTop: "2px" }}>✨</div>}
+                <div onMouseDown={msg.role === "assistant" ? handleMessageClick : undefined} style={{
+                  maxWidth: "85%",
+                  background: msg.role === "user" ? `${colors.accent}12` : "transparent",
+                  padding: msg.role === "user" ? "10px 16px" : "2px 0 2px 12px",
+                  borderRadius: msg.role === "user" ? "16px" : "0",
+                  borderLeft: msg.role === "assistant" ? `2px solid ${colors.accent}25` : "none",
+                  color: msg.role === "assistant" ? "#d4d4d8" : "#e4e4e7",
+                  fontSize: "14px", lineHeight: "1.75", whiteSpace: "pre-wrap"
+                }}>
+                  <div className={isLastAssistant ? "streaming-cursor" : ""} dangerouslySetInnerHTML={{ __html: msg.role === "assistant" ? formatMessageWithCitations(msg.content, i) : formatMessage(msg.content) }} />
                 </div>
               </div>
               {msg.role === "assistant" && <div style={{ marginTop: "20px", marginLeft: "38px", maxWidth: "480px", width: "100%" }}><RotatingFunFact index={i} /></div>}
             </div>
-          ))}
+            );
+          })}
+
+          {/* Typing indicator */}
+          {isLoading && (
+            <div style={{ display: "flex", alignItems: "flex-start", marginBottom: "20px" }}>
+              <div style={{ width: "28px", height: "28px", borderRadius: "8px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "14px", color: "white", flexShrink: 0, marginRight: "10px", marginTop: "2px" }}>✨</div>
+              <div style={{ display: "flex", gap: "5px", padding: "14px 18px", background: "rgba(255,255,255,0.03)", borderRadius: "12px", borderLeft: `2px solid ${colors.accent}25` }}>
+                <div className="dot-bounce-1" style={{ background: colors.accent }} />
+                <div className="dot-bounce-2" style={{ background: colors.accent }} />
+                <div className="dot-bounce-3" style={{ background: colors.accent }} />
+              </div>
+            </div>
+          )}
+
           <div ref={messagesEndRef} />
         </div>
       </div>
@@ -308,8 +446,8 @@ function ChatContent() {
       {/* Input */}
       <div style={{ padding: "16px 20px 20px", flexShrink: 0 }}>
         <div style={{ maxWidth: "760px", margin: "0 auto", background: "#18181b", borderRadius: "14px", padding: "6px 18px", display: "flex", alignItems: "center" }}>
-          <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Haz una pregunta..." style={{ flex: 1, background: "transparent", color: "#e4e4e7", border: "none", outline: "none", resize: "none" }} rows={1} />
-          <button onClick={sendMessage} style={{ background: colors.gradient, color: "white", border: "none", borderRadius: "8px", padding: "8px 12px", cursor: "pointer" }}>↑</button>
+          <textarea ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Hacé una pregunta..." style={{ flex: 1, background: "transparent", color: "#e4e4e7", border: "none", outline: "none", resize: "none", fontSize: "14px" }} rows={1} />
+          <button onClick={sendMessage} disabled={!input.trim() || isLoading} style={{ background: colors.gradient, color: "white", border: "none", borderRadius: "8px", padding: "8px 12px", cursor: input.trim() && !isLoading ? "pointer" : "default", opacity: input.trim() && !isLoading ? 1 : 0.35, transition: "opacity 0.2s" }}>↑</button>
         </div>
       </div>
 
