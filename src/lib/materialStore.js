@@ -32,6 +32,7 @@ const MEDICAL_SYNONYMS = {
   "vena": ["venoso", "venosa", "drenaje", "flebitis"],
   // Paquetes y haces vasculonerviosos
   "paquete": ["paquete vasculonervioso", "pedículo", "pediculo", "haz vasculonervioso", "paquete vascular", "eje vasculonervioso"],
+  "vasculonervioso": ["vasculo", "vascular", "vasos", "pediculo", "pedículo", "haz"],
   "vascular": ["vasculo", "vasculonervioso", "vasos", "angiovascular"],
   // Regiones del miembro superior
   "muñeca": ["muneca", "carpo", "radiocarpiana", "region carpiana", "articulacion radiocarpiana"],

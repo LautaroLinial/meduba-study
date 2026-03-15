@@ -173,8 +173,11 @@ export async function POST(request) {
       semanticResults = await semanticSearch(year, materiaKey, message, 20);
       if (activeLibros && activeLibros.length > 0) {
         semanticResults = semanticResults.filter(r => {
+          // Buscar por ID primero, luego por libro directamente del embedding
           const frag = allFragments.find(f => f.id === r.id);
-          return frag && activeLibros.includes(frag.libro);
+          if (frag) return activeLibros.includes(frag.libro);
+          // Si no hay match de ID, el embedding puede tener libro propio
+          return r.libro ? activeLibros.includes(r.libro) : true;
         });
       }
     }
@@ -315,6 +318,9 @@ export async function POST(request) {
           return `--- ${f.libro}${pageInfo} ---\n${chapterCtx}${f.text.substring(0, 1500)}`;
         }).join("\n\n");
     }
+
+    // Log de búsqueda
+    console.log(`[search] "${message}" → words:[${queryWords.join(",")}] exact:${sortedExact.length} title:${sortedTitle.length} kw:${filteredKeywords.length} sem:${sortedSemantic.length} toc:${tocBoostedFragments.length} → ${rankedIds.length} results [${rankedIds.slice(0,5).map(r => `p.${r.page}`).join(",")}]`);
 
     const allLibros = getAllLibros(year, materiaKey);
     const systemPrompt = buildSystemPrompt({

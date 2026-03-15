@@ -5,18 +5,29 @@
 
 import { expandQuery as expandQueryStatic } from "./materialStore";
 
+// Cache para evitar llamadas repetidas a la API
+const queryCache = new Map();
+const MAX_CACHE = 100;
+
 /**
  * Expande una query médica con sinónimos usando Claude Haiku.
- * Si falla o tarda más de 3s, cae al diccionario estático.
+ * Si falla o tarda más de 10s, cae al diccionario estático.
  *
  * @param {string} query - La pregunta del usuario
  * @param {string} apiKey - API key de Anthropic
  * @returns {string[]} - Lista de palabras expandidas (sin duplicados)
  */
 export async function expandQueryWithAI(query, apiKey) {
+  // Check cache first
+  const cacheKey = query.toLowerCase().trim();
+  if (queryCache.has(cacheKey)) {
+    console.log(`[queryExpander] Cache hit for: ${query}`);
+    return queryCache.get(cacheKey);
+  }
+
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000); // 3s max
+    const timeout = setTimeout(() => controller.abort(), 10000); // 10s max
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
@@ -75,11 +86,20 @@ export async function expandQueryWithAI(query, apiKey) {
       });
     });
 
+    const result = Array.from(expanded);
     console.log(`[queryExpander] AI expansion: ${query} → ${expanded.size} términos`);
-    return Array.from(expanded);
+
+    // Save to cache
+    if (queryCache.size >= MAX_CACHE) {
+      const firstKey = queryCache.keys().next().value;
+      queryCache.delete(firstKey);
+    }
+    queryCache.set(cacheKey, result);
+
+    return result;
   } catch (error) {
     if (error.name === "AbortError") {
-      console.warn("[queryExpander] Timeout (3s), falling back to static");
+      console.warn("[queryExpander] Timeout (10s), falling back to static");
     } else {
       console.warn("[queryExpander] Error, falling back to static:", error.message);
     }
