@@ -8,6 +8,7 @@ import { expandQuery as expandQueryStatic } from "./materialStore";
 // Cache para evitar llamadas repetidas a la API
 const queryCache = new Map();
 const MAX_CACHE = 100;
+let _aiDisabled = false; // Se activa si la API no tiene créditos
 
 /**
  * Expande una query médica con sinónimos usando Claude Haiku.
@@ -18,6 +19,11 @@ const MAX_CACHE = 100;
  * @returns {string[]} - Lista de palabras expandidas (sin duplicados)
  */
 export async function expandQueryWithAI(query, apiKey) {
+  // Si la AI fue desactivada (sin créditos), ir directo al fallback
+  if (_aiDisabled) {
+    return expandQueryStatic(query);
+  }
+
   // Check cache first
   const cacheKey = query.toLowerCase().trim();
   if (queryCache.has(cacheKey)) {
@@ -52,7 +58,13 @@ export async function expandQueryWithAI(query, apiKey) {
     clearTimeout(timeout);
 
     if (!response.ok) {
+      const errorBody = await response.text().catch(() => "");
       console.warn("[queryExpander] API error, falling back to static:", response.status);
+      // Si no hay créditos, desactivar llamadas futuras para no perder 10s por request
+      if (errorBody.includes("credit balance is too low")) {
+        console.warn("[queryExpander] No credits — desactivando AI expansion para esta sesión");
+        _aiDisabled = true;
+      }
       return expandQueryStatic(query);
     }
 

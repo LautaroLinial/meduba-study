@@ -10,6 +10,44 @@ import { expandQueryWithAI } from "@/lib/queryExpander";
 import fs from "fs";
 import path from "path";
 
+// Helper: normalizar texto una sola vez (lowercase + sin acentos + espacios normalizados)
+function normalizeText(text) {
+  return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+}
+
+// Cache de fragmentos pre-normalizados en memoria
+const fragmentsCache = new Map(); // key: "year_materiaKey" → { fragments, mtime }
+
+function loadFragmentsCached(year, materiaKey, activeLibros) {
+  const materialesPath = path.join(process.cwd(), "data", "materiales", `${year}_${materiaKey}.json`);
+  if (!fs.existsSync(materialesPath)) return [];
+
+  const cacheKey = `${year}_${materiaKey}`;
+  const stat = fs.statSync(materialesPath);
+  const cached = fragmentsCache.get(cacheKey);
+
+  let allFragments;
+  if (cached && cached.mtime >= stat.mtimeMs) {
+    allFragments = cached.fragments;
+  } else {
+    const raw = fs.readFileSync(materialesPath, "utf-8");
+    allFragments = (JSON.parse(raw).fragments || []).map(f => ({
+      ...f,
+      _normalized: normalizeText(f.text),
+      _head120: normalizeText(f.text.substring(0, 120)),
+      _head150: normalizeText(f.text.substring(0, 150)),
+      _lineCount: f.text.split("\n").length,
+    }));
+    fragmentsCache.set(cacheKey, { fragments: allFragments, mtime: stat.mtimeMs });
+    console.log(`[cache] Pre-normalizado ${allFragments.length} fragmentos para ${cacheKey}`);
+  }
+
+  if (activeLibros && activeLibros.length > 0) {
+    return allFragments.filter(f => activeLibros.includes(f.libro));
+  }
+  return allFragments;
+}
+
 // Workaround: cargar .env.local manualmente si Next.js no lo hizo
 if (!process.env.ANTHROPIC_API_KEY) {
   const envPaths = [
@@ -61,16 +99,7 @@ export async function POST(request) {
     }
 
     const yearData = CURRICULUM[year];
-    const materialesPath = path.join(process.cwd(), "data", "materiales", `${year}_${materiaKey}.json`);
-    let allFragments = [];
-    if (fs.existsSync(materialesPath)) {
-      const raw = fs.readFileSync(materialesPath, "utf-8");
-      allFragments = JSON.parse(raw).fragments || [];
-    }
-
-    if (activeLibros && activeLibros.length > 0) {
-      allFragments = allFragments.filter(f => activeLibros.includes(f.libro));
-    }
+    const allFragments = loadFragmentsCached(year, materiaKey, activeLibros);
 
     const stopWords = [
       // Artículos, preposiciones, pronombres
@@ -113,7 +142,7 @@ export async function POST(request) {
     }
 
     allFragments.forEach(f => {
-      const textLower = f.text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+      const textLower = f._normalized;
 
       // Frase completa
       if (textLower.includes(queryPhrase)) {
@@ -131,7 +160,7 @@ export async function POST(request) {
       if (totalHits >= 2) {
         let score = (queryHits * 30) + Math.min(expandedHits * 3, 30);
         // Heading bonus: todos los queryWords en los primeros 120 chars + contexto de heading
-        const headText = textLower.substring(0, 120);
+        const headText = f._head120;
         if (queryWords.length >= 2 && queryWords.every(w => stemMatch(w, headText))) {
           const sentenceMarkers = [" de la ", " del ", " y de ", " por ", " en la ", " que "];
           if (!sentenceMarkers.some(m => headText.includes(m))) {
@@ -149,7 +178,7 @@ export async function POST(request) {
       const lines = f.text.split("\n").slice(0, 5);
       for (const line of lines) {
         if (line.length >= 200) continue;
-        const lineLower = line.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+        const lineLower = normalizeText(line);
         const queryHits = queryWords.filter(w => stemMatch(w, lineLower)).length;
         const expandedHits = expandedOnly.filter(w => stemMatch(w, lineLower)).length;
         const totalHits = queryHits + expandedHits;
@@ -160,9 +189,8 @@ export async function POST(request) {
         }
       }
       // Estrategia 2: primeros 150 chars (para fragmentos de 1 sola línea larga)
-      // Solo si el contexto parece heading (sin conectores de oración antes de los keywords)
-      if (f.text.split("\n").length <= 2) {
-        const headText = f.text.substring(0, 150).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+      if (f._lineCount <= 2) {
+        const headText = f._head150;
         const queryHits = queryWords.filter(w => stemMatch(w, headText)).length;
         const expandedHits = expandedOnly.filter(w => stemMatch(w, headText)).length;
         if (queryHits + expandedHits >= 2 && isHeadingContext(headText, headText.indexOf(queryWords[0]))) {
@@ -197,7 +225,7 @@ export async function POST(request) {
       if (!toc || !toc.entries) continue;
 
       for (const entry of toc.entries) {
-        const titleNorm = entry.title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ");
+        const titleNorm = normalizeText(entry.title);
 
         // ── Dos niveles de TOC boost ──
         const queryMatchCount = queryWords.filter(w => stemMatch(w, titleNorm)).length;
@@ -387,6 +415,13 @@ export async function POST(request) {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Error de la API de Anthropic:", errorText);
+      // Mensaje amigable para error de créditos
+      if (errorText.includes("credit balance is too low")) {
+        return new Response(JSON.stringify({
+          error: "Sin créditos en la API de Anthropic",
+          details: "Recargá créditos en console.anthropic.com → Plans & Billing para usar el chatbot."
+        }), { status: 402 });
+      }
       return new Response(JSON.stringify({ error: `Error API: ${response.status}`, details: errorText }), { status: response.status });
     }
 
