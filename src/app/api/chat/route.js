@@ -7,6 +7,8 @@ import { getMateria, CURRICULUM, getAllLibros } from "@/lib/curriculum";
 import { searchMaterial, expandQuery, loadTOC, getChapterForPage } from "@/lib/materialStore";
 import { semanticSearch, hasEmbeddings } from "@/lib/embeddings";
 import { expandQueryWithAI } from "@/lib/queryExpander";
+import { callLLM, createTextStream, LLMError } from "@/lib/llmProvider";
+import { DEFAULT_MODEL } from "@/lib/llmModels";
 import fs from "fs";
 import path from "path";
 
@@ -83,14 +85,17 @@ export async function POST(request) {
     // Support both { message: "..." } and { messages: [...] } formats
     const message = body.message || (Array.isArray(body.messages) && body.messages.length > 0 ? body.messages[body.messages.length - 1].content : null);
     const { year, materia: materiaKey, history, activeLibros } = body;
+    const modelId = body.modelId || DEFAULT_MODEL;
 
     if (!message || typeof message !== "string") {
       return new Response(JSON.stringify({ error: "Mensaje no proporcionado o formato inválido." }), { status: 400 });
     }
 
+    // Validar que haya al menos una API key configurada
     const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: "API key no configurada." }), { status: 500 });
+    const openrouterKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey && !openrouterKey) {
+      return new Response(JSON.stringify({ error: "Ninguna API key configurada. Agregá ANTHROPIC_API_KEY o OPENROUTER_API_KEY en .env.local" }), { status: 500 });
     }
 
     const materia = getMateria(year, materiaKey);
@@ -395,80 +400,31 @@ export async function POST(request) {
       text: f.text.substring(0, 1500),
     }));
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 4096,
-        system: systemPrompt,
-        messages: claudeMessages,
-        stream: true,
-      }),
+    // ── Llamar al LLM seleccionado (Anthropic o OpenRouter) ──
+    const { response, provider } = await callLLM({
+      modelId,
+      systemPrompt,
+      messages: claudeMessages,
     });
 
-    // Mejor manejo de errores por si falla la API
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Error de la API de Anthropic:", errorText);
-      // Mensaje amigable para error de créditos
-      if (errorText.includes("credit balance is too low")) {
-        return new Response(JSON.stringify({
-          error: "Sin créditos en la API de Anthropic",
-          details: "Recargá créditos en console.anthropic.com → Plans & Billing para usar el chatbot."
-        }), { status: 402 });
-      }
-      return new Response(JSON.stringify({ error: `Error API: ${response.status}`, details: errorText }), { status: response.status });
-    }
+    console.log(`[llm] Usando modelo: ${modelId} (${provider})`);
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        const metadata = JSON.stringify({ type: 'metadata', usedFragments });
-        controller.enqueue(new TextEncoder().encode(metadata + '\n\n---\n\n'));
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split('\n').filter(line => line.trim() !== '');
-          
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const dataStr = line.replace('data: ', '');
-              if (dataStr === '[DONE]') continue;
-              
-              try {
-                const data = JSON.parse(dataStr);
-                if (data.type === 'content_block_delta' && data.delta.text) {
-                  controller.enqueue(new TextEncoder().encode(data.delta.text));
-                }
-              } catch (e) {
-                // Silenciar errores de parseo intermedios
-              }
-            }
-          }
-        }
-        controller.close();
-      }
-    });
+    // Crear stream de texto con metadata
+    const metadata = { type: "metadata", usedFragments, modelId };
+    const stream = createTextStream(response, provider, metadata);
 
     return new Response(stream, {
       headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Transfer-Encoding': 'chunked',
+        "Content-Type": "text/plain; charset=utf-8",
+        "Transfer-Encoding": "chunked",
       },
     });
 
   } catch (error) {
-    console.error("Error fatal en /api/chat:", error);
+    console.error("Error en /api/chat:", error.message);
+    if (error instanceof LLMError) {
+      return new Response(JSON.stringify({ error: error.message, details: error.details }), { status: error.status });
+    }
     return new Response(JSON.stringify({ error: "Error interno del servidor", details: error.message }), { status: 500 });
   }
 }

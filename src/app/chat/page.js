@@ -80,10 +80,14 @@ function ChatContent() {
   const [pageModal, setPageModal] = useState(null);
   const [loadedLibros, setLoadedLibros] = useState([]);
   const [activeLibros, setActiveLibros] = useState([]);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [showModelPicker, setShowModelPicker] = useState(false);
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const latestQuestionRef = useRef(null);
+  const modelPickerRef = useRef(null);
 
   const yearData = CURRICULUM[year];
   const materia = getMateria(year, materiaKey);
@@ -104,6 +108,34 @@ function ChatContent() {
         .catch(() => {});
     }
   }, [year, materiaKey, catedraNum]);
+
+  // Cerrar model picker al hacer click fuera
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (modelPickerRef.current && !modelPickerRef.current.contains(e.target)) {
+        setShowModelPicker(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Cargar modelos disponibles
+  useEffect(() => {
+    fetch("/api/models")
+      .then(r => r.json())
+      .then(data => {
+        setAvailableModels(data.models || []);
+        // Restaurar modelo guardado o usar default
+        const saved = localStorage.getItem("meduba_model");
+        if (saved && data.models?.some(m => m.id === saved)) {
+          setSelectedModel(saved);
+        } else {
+          setSelectedModel(data.default || "deepseek-v3");
+        }
+      })
+      .catch(() => setSelectedModel("deepseek-v3"));
+  }, []);
 
   useEffect(() => {
     if (materia) {
@@ -175,6 +207,7 @@ function ChatContent() {
           materia: materiaKey,
           history: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
           activeLibros: activeLibros,
+          modelId: selectedModel,
         }),
       });
 
@@ -290,6 +323,64 @@ function ChatContent() {
             <div style={{ width: "28px", height: "28px", borderRadius: "7px", background: colors.gradient, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "13px", fontWeight: 700, color: "white" }}>{year}°</div>
             <span style={{ fontSize: "14px", color: "#a1a1aa", fontWeight: 500 }}>{materia.icon} {materia.name}</span>
           </div>
+        </div>
+
+        {/* Model selector */}
+        <div ref={modelPickerRef} style={{ position: "relative" }}>
+          <button
+            onClick={() => setShowModelPicker(!showModelPicker)}
+            style={{
+              display: "flex", alignItems: "center", gap: "6px",
+              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "8px", padding: "5px 12px", cursor: "pointer", color: "#a1a1aa", fontSize: "12px",
+            }}
+          >
+            <span>🤖</span>
+            <span>{availableModels.find(m => m.id === selectedModel)?.name || "Modelo"}</span>
+            <span style={{ fontSize: "10px", color: "#52525b" }}>▼</span>
+          </button>
+
+          {showModelPicker && (
+            <div style={{
+              position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 100,
+              background: "#1a1a1e", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px",
+              padding: "8px", minWidth: "320px", boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+            }}>
+              <div style={{ padding: "6px 10px", fontSize: "10px", color: "#52525b", textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600 }}>
+                Seleccioná un modelo
+              </div>
+              {availableModels.map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => {
+                    setSelectedModel(m.id);
+                    localStorage.setItem("meduba_model", m.id);
+                    setShowModelPicker(false);
+                  }}
+                  style={{
+                    display: "flex", flexDirection: "column", width: "100%", textAlign: "left",
+                    padding: "10px 12px", borderRadius: "8px", border: "none", cursor: "pointer",
+                    background: m.id === selectedModel ? `${colors.accent}15` : "transparent",
+                    marginBottom: "2px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ color: "#e4e4e7", fontSize: "13px", fontWeight: 500 }}>{m.name}</span>
+                    <span style={{
+                      fontSize: "10px", padding: "2px 6px", borderRadius: "4px", fontWeight: 600,
+                      background: m.badge === "Gratis" ? "#10b98120" : m.badge === "Recomendado" ? `${colors.accent}20` : m.badge === "Premium" ? "#a855f720" : "#f59e0b20",
+                      color: m.badge === "Gratis" ? "#10b981" : m.badge === "Recomendado" ? colors.accent : m.badge === "Premium" ? "#a855f7" : "#f59e0b",
+                    }}>{m.badge}</span>
+                    {m.id === selectedModel && <span style={{ marginLeft: "auto", color: colors.accent, fontSize: "14px" }}>✓</span>}
+                  </div>
+                  <div style={{ fontSize: "11px", color: "#71717a", marginTop: "3px", lineHeight: "1.4" }}>{m.description}</div>
+                  <div style={{ fontSize: "10px", color: "#3f3f46", marginTop: "2px" }}>
+                    {m.inputCost === 0 ? "Gratis" : `$${m.inputCost} in / $${m.outputCost} out por 1M tokens`}
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </header>
 
