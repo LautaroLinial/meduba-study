@@ -89,8 +89,12 @@ async function callOpenRouter({ model, systemPrompt, messages, maxTokens }) {
 
   if (!response.ok) {
     const errorText = await response.text();
-    if (errorText.includes("credits") || errorText.includes("insufficient")) {
-      throw new LLMError("Sin créditos en OpenRouter. Recargá en openrouter.ai/credits.", 402);
+    console.error("[openrouter] Error:", response.status, errorText);
+    if (errorText.includes("credits") || errorText.includes("Insufficient") || errorText.includes("insufficient")) {
+      throw new LLMError("Sin créditos en OpenRouter. Recargá en openrouter.ai/settings/credits. O usá un modelo gratuito (MiniMax M2.5, GLM 4.5 Air).", 402);
+    }
+    if (errorText.includes("No endpoints found")) {
+      throw new LLMError(`Modelo no disponible en OpenRouter: ${model.model}. Probá otro modelo.`, 404);
     }
     if (response.status === 429) {
       throw new LLMError("Rate limit alcanzado. Esperá un momento o cambiá a un modelo pago.", 429);
