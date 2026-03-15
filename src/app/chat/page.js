@@ -288,12 +288,102 @@ function ChatContent() {
   }
 
   function formatMessageWithCitations(text, messageIndex) {
-    let html = text.replace(/\*\*(.*?)\*\*/g, "<strong style='color:#fafafa'>$1</strong>").replace(/\n/g, "<br/>");
     const citationRegex = /[\(\[]((?:Latarjet|Rouvière|Testut|Netter|Prometheus|Ross|Junqueira|Geneser|Langman|Moore|Guyton|Ganong|Cingolani|Murray|Jawetz|Robbins|Goodman|Katzung|Argente|Harper|Lehninger|Stryer|Blanco|Cicardo|Frumento|Parisi|Boron|Basualdo|Rubin|Kumar|Velázquez|Florez|Cossio|Surós)[^,\)\]]*),\s*pág[s]?\.?\s*(\d+(?:\s*[-–]\s*\d+)?)[\)\]]/gi;
+
+    // Procesar línea por línea para manejar markdown correctamente
+    const lines = text.split("\n");
+    let html = "";
+    let inList = false;
+    let listType = null; // "ul" o "ol"
+
+    for (let i = 0; i < lines.length; i++) {
+      let line = lines[i];
+
+      // Separador ---
+      if (/^-{3,}\s*$/.test(line)) {
+        if (inList) { html += `</${listType}>`; inList = false; }
+        html += `<hr style="border:none;border-top:1px solid rgba(255,255,255,0.08);margin:16px 0;"/>`;
+        continue;
+      }
+
+      // Headers
+      const h3Match = line.match(/^###\s+(.+)/);
+      const h2Match = line.match(/^##\s+(.+)/);
+      const h1Match = line.match(/^#\s+(.+)/);
+      if (h1Match || h2Match || h3Match) {
+        if (inList) { html += `</${listType}>`; inList = false; }
+        const content = (h3Match || h2Match || h1Match)[1];
+        const formatted = formatInline(content, citationRegex, messageIndex);
+        if (h3Match) {
+          html += `<h4 style="color:#e4e4e7;font-size:14px;font-weight:600;margin:18px 0 8px;padding-bottom:4px;">${formatted}</h4>`;
+        } else if (h2Match) {
+          html += `<h3 style="color:#fafafa;font-size:15px;font-weight:600;margin:20px 0 10px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.06);">${formatted}</h3>`;
+        } else {
+          html += `<h2 style="color:#fafafa;font-size:17px;font-weight:700;margin:4px 0 12px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.08);">${formatted}</h2>`;
+        }
+        continue;
+      }
+
+      // Lista no ordenada (- o *)
+      const ulMatch = line.match(/^(\s*)[-*]\s+(.+)/);
+      if (ulMatch) {
+        const indent = ulMatch[1].length;
+        const content = formatInline(ulMatch[2], citationRegex, messageIndex);
+        if (!inList || listType !== "ul") {
+          if (inList) html += `</${listType}>`;
+          html += `<ul style="margin:6px 0;padding-left:${indent > 0 ? 36 : 20}px;list-style:none;">`;
+          inList = true; listType = "ul";
+        }
+        html += `<li style="position:relative;padding:4px 0 4px 16px;color:#d4d4d8;font-size:14px;line-height:1.7;"><span style="position:absolute;left:0;color:${colors.accent};font-weight:bold;">•</span>${content}</li>`;
+        continue;
+      }
+
+      // Lista ordenada (1. 2. etc)
+      const olMatch = line.match(/^(\s*)(\d+)[.)]\s+(.+)/);
+      if (olMatch) {
+        const num = olMatch[2];
+        const content = formatInline(olMatch[3], citationRegex, messageIndex);
+        if (!inList || listType !== "ol") {
+          if (inList) html += `</${listType}>`;
+          html += `<ol style="margin:6px 0;padding-left:8px;list-style:none;counter-reset:none;">`;
+          inList = true; listType = "ol";
+        }
+        html += `<li style="display:flex;gap:10px;padding:4px 0;color:#d4d4d8;font-size:14px;line-height:1.7;"><span style="color:${colors.accent};font-weight:700;font-size:13px;min-width:22px;flex-shrink:0;">${num}.</span><span>${content}</span></li>`;
+        continue;
+      }
+
+      // Línea vacía
+      if (line.trim() === "") {
+        if (inList) { html += `</${listType}>`; inList = false; }
+        html += `<div style="height:8px;"></div>`;
+        continue;
+      }
+
+      // Párrafo normal
+      if (inList) { html += `</${listType}>`; inList = false; }
+      html += `<p style="margin:4px 0;color:#d4d4d8;font-size:14px;line-height:1.75;">${formatInline(line, citationRegex, messageIndex)}</p>`;
+    }
+
+    if (inList) html += `</${listType}>`;
+    return html;
+  }
+
+  // Formatear inline: bold, italic, citas, código inline
+  function formatInline(text, citationRegex, messageIndex) {
+    let html = text;
+    // Código inline `code`
+    html = html.replace(/`([^`]+)`/g, `<code style="background:rgba(255,255,255,0.08);color:${colors.accent};padding:2px 6px;border-radius:4px;font-size:12px;font-family:monospace;">$1</code>`);
+    // Bold + italic ***text***
+    html = html.replace(/\*\*\*(.*?)\*\*\*/g, "<strong style='color:#fafafa'><em>$1</em></strong>");
+    // Bold **text**
+    html = html.replace(/\*\*(.*?)\*\*/g, "<strong style='color:#fafafa'>$1</strong>");
+    // Italic *text*
+    html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "<em style='color:#e4e4e7'>$1</em>");
+    // Citations
     html = html.replace(citationRegex, (match, libroRaw, pageNum) => {
       const libro = libroRaw.trim();
       const page = pageNum.trim().split(/[-–]/)[0].trim();
-      return `<button class="citation-btn" data-libro="${libro}" data-page="${page}" data-msgindex="${messageIndex}" style="display:inline-flex;align-items:center;gap:6px;background:${colors.accent}15;color:${colors.accent};padding:6px 12px;border-radius:8px;border:1px solid ${colors.accent}30;cursor:pointer;font-size:12px;font-family:inherit;transition:all 0.2s;margin:4px 2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);user-select:none;pointer-events:auto;">📖 ${libro}, pág. ${pageNum}</button>`;
+      return `<button class="citation-btn" data-libro="${libro}" data-page="${page}" data-msgindex="${messageIndex}" style="display:inline-flex;align-items:center;gap:6px;background:${colors.accent}15;color:${colors.accent};padding:4px 10px;border-radius:6px;border:1px solid ${colors.accent}30;cursor:pointer;font-size:11px;font-family:inherit;transition:all 0.2s;margin:2px 3px;box-shadow:0 1px 3px rgba(0,0,0,0.2);user-select:none;pointer-events:auto;vertical-align:middle;">📖 ${libro}, pág. ${pageNum}</button>`;
     });
     return html;
   }
@@ -417,7 +507,7 @@ function ChatContent() {
                   borderRadius: msg.role === "user" ? "16px" : "0",
                   borderLeft: msg.role === "assistant" ? `2px solid ${colors.accent}25` : "none",
                   color: msg.role === "assistant" ? "#d4d4d8" : "#e4e4e7",
-                  fontSize: "14px", lineHeight: "1.75", whiteSpace: "pre-wrap"
+                  fontSize: "14px", lineHeight: "1.75", whiteSpace: msg.role === "user" ? "pre-wrap" : "normal"
                 }}>
                   <div className={isLastAssistant ? "streaming-cursor" : ""} dangerouslySetInnerHTML={{ __html: msg.role === "assistant" ? formatMessageWithCitations(msg.content, i) : formatMessage(msg.content) }} />
                 </div>
