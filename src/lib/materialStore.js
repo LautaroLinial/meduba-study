@@ -7,6 +7,7 @@ import fs from "fs";
 import path from "path";
 
 const DATA_DIR = path.join(process.cwd(), "data", "materiales");
+const TOC_DIR = path.join(process.cwd(), "data", "toc");
 
 function ensureDir(dirPath) {
   if (!fs.existsSync(dirPath)) {
@@ -23,12 +24,41 @@ function getMateriaPath(year, materiaKey) {
 // ============================================================
 
 const MEDICAL_SYNONYMS = {
+  // Estructuras generales
   "hueso": ["óseo", "oseo", "esqueleto", "esquelético", "osteología", "osteologia"],
-  "músculo": ["musculo", "muscular", "miología", "miologia"],
+  "músculo": ["musculo", "muscular", "miología", "miologia", "miocito"],
   "nervio": ["nervioso", "neural", "inervación", "inervacion", "neurología", "neurologia"],
   "arteria": ["arterial", "vascular", "vaso", "irrigación", "irrigacion"],
-  "vena": ["venoso", "venosa", "drenaje"],
+  "vena": ["venoso", "venosa", "drenaje", "flebitis"],
+  // Paquetes y haces vasculonerviosos
+  "paquete": ["paquete vasculonervioso", "pedículo", "pediculo", "haz vasculonervioso", "paquete vascular", "eje vasculonervioso"],
+  "vascular": ["vasculo", "vasculonervioso", "vasos", "angiovascular"],
+  // Regiones del miembro superior
+  "muñeca": ["muneca", "carpo", "radiocarpiana", "region carpiana", "articulacion radiocarpiana"],
+  "hombro": ["glenohumeral", "escapulohumeral", "deltoides", "manguito rotador", "escapular"],
+  "codo": ["articulacion del codo", "olécranon", "olecranon", "epicóndilo", "epicondilo", "cubital"],
+  "axila": ["axilar", "fosa axilar", "hueco axilar", "cavidad axilar"],
+  "antebrazo": ["antebraquial", "region antebraquial"],
+  // Plexos y nervios específicos
+  "plexo": ["plexo braquial", "plexo cervical", "plexo lumbar", "plexo sacro", "plexo lumbosacro"],
+  "mediano": ["nervio mediano", "n. mediano"],
+  "cubital": ["nervio cubital", "n. cubital", "nervio ulnar", "ulnar"],
+  "radial": ["nervio radial", "n. radial"],
+  // Espacios y canales
   "túnel carpiano": ["tunel carpiano", "canal del carpo", "conducto carpiano", "retináculo flexor", "retinaculo flexor"],
+  "canal": ["conducto", "túnel", "tunel", "surco", "corredera", "gotera"],
+  "fosa": ["fosa cubital", "fosa poplítea", "fosa axilar", "fosa temporal", "hueco popliteo"],
+  // Tejidos conectivos
+  "ligamento": ["ligamentoso", "ligamentario"],
+  "tendón": ["tendon", "tendinoso", "aponeurosis", "aponeurótico", "aponeurotco"],
+  "fascia": ["fascial", "aponeurosis", "vaina"],
+  "articulación": ["articulacion", "articular", "sinovial", "diartrosis"],
+  // Sistema linfático
+  "ganglio": ["ganglionar", "linfonodo", "nódulo linfático", "nodulo linfatico", "linfadenopatia"],
+  // Vasos específicos
+  "tronco": ["tronco arterial", "tronco venoso", "tronco nervioso"],
+  "rama": ["ramo", "colateral", "terminal", "ramas"],
+  // Órganos
   "corazón": ["corazon", "cardíaco", "cardiaco", "miocardio", "pericardio"],
   "pulmón": ["pulmon", "pulmonar", "respiratorio", "bronquio", "alveolo"],
   "riñón": ["rinon", "renal", "nefrona", "nefron", "glomerulo"],
@@ -37,32 +67,45 @@ const MEDICAL_SYNONYMS = {
   "intestino": ["entérico", "enterico", "duodeno", "yeyuno", "íleon", "ileon", "colon"],
   "cerebro": ["cerebral", "encéfalo", "encefalo", "encefálico", "encefalico", "corteza"],
   "médula": ["medula", "medular", "espinal"],
+  // Regiones corporales
   "columna": ["vertebral", "raquis", "raquídeo", "raquideo", "vértebra", "vertebra"],
   "brazo": ["braquial", "miembro superior", "humeral", "húmero", "humero"],
   "pierna": ["crural", "miembro inferior", "femoral", "fémur", "femur", "tibial", "tibia"],
-  "mano": ["manual", "palmar", "carpo", "metacarpo", "falange"],
+  "mano": ["manual", "palmar", "carpo", "metacarpo", "falange", "volar"],
   "pie": ["podal", "plantar", "tarso", "metatarso"],
   "cabeza": ["cefálico", "cefalico", "craneal", "cráneo", "craneo"],
   "cuello": ["cervical", "cervicales"],
   "tórax": ["torax", "torácico", "toracico", "pectoral", "pecho"],
   "abdomen": ["abdominal", "peritoneo", "peritoneal"],
   "pelvis": ["pélvico", "pelvico", "pelviano"],
+  "dorso": ["dorsal", "espalda", "posterior"],
+  "palma": ["palmar", "volar"],
+  // Movimientos
+  "flexor": ["flexión", "flexion", "flexora"],
+  "extensor": ["extensión", "extension", "extensora"],
+  "aductor": ["aducción", "aduccion"],
+  "abductor": ["abducción", "abduccion"],
+  // Histología y citología
   "célula": ["celula", "celular", "citoplasma", "citoplasmático"],
   "tejido": ["tisular", "histológico", "histologico"],
   "sangre": ["hemático", "hematico", "sanguíneo", "sanguineo", "hematológico"],
+  // Patología
   "inflamación": ["inflamacion", "inflamatorio", "flogosis"],
   "tumor": ["tumoral", "neoplasia", "neoplásico", "neoplasico", "cáncer", "cancer"],
   "fractura": ["ósea", "osea"],
+  // Orientación espacial
   "anterior": ["ventral"],
   "posterior": ["dorsal"],
   "superior": ["craneal", "cefálico"],
   "inferior": ["caudal"],
   "lateral": ["externo"],
   "medial": ["interno"],
+  "proximal": ["cercano", "próximo"],
+  "distal": ["lejano", "alejado"],
 };
 
 // Expandir query con sinónimos
-function expandQuery(query) {
+export function expandQuery(query) {
   const words = query.toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -206,7 +249,7 @@ export function searchMaterial(year, materiaKey, query) {
   return scored
     .filter((f) => f.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
+    .slice(0, 8);
 }
 
 // ============================================================
@@ -298,6 +341,89 @@ export function deleteMaterial(year, materiaKey) {
     return true;
   }
   return false;
+}
+
+// ============================================================
+// BORRAR UN LIBRO ESPECÍFICO (Y SUS FRAGMENTOS)
+// ============================================================
+
+// ============================================================
+// TOC (TABLA DE CONTENIDOS) - Almacenamiento y consulta
+// ============================================================
+
+function safeFileName(name) {
+  return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "_").substring(0, 80);
+}
+
+function getTOCPath(year, materiaKey, libroName) {
+  return path.join(TOC_DIR, `${year}_${materiaKey}_${safeFileName(libroName)}.json`);
+}
+
+/**
+ * Guarda el TOC estructurado de un libro.
+ * @param {number} year
+ * @param {string} materiaKey
+ * @param {string} libroName
+ * @param {Array<{title: string, page: number, level?: number}>} entries
+ */
+export function saveTOC(year, materiaKey, libroName, entries) {
+  ensureDir(TOC_DIR);
+  const filePath = getTOCPath(year, materiaKey, libroName);
+  const data = {
+    libro: libroName,
+    extractedAt: new Date().toISOString(),
+    entries: entries,
+  };
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+  console.log(`[TOC] Guardado: ${libroName} con ${entries.length} entradas`);
+  return data;
+}
+
+/**
+ * Carga el TOC de un libro. Retorna null si no existe.
+ */
+export function loadTOC(year, materiaKey, libroName) {
+  const filePath = getTOCPath(year, materiaKey, libroName);
+  if (!fs.existsSync(filePath)) return null;
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Dado un número de página y las entries del TOC, retorna el capítulo/sección más cercano.
+ * Busca el último entry cuya página sea <= la página dada.
+ */
+export function getChapterForPage(page, tocEntries) {
+  if (!tocEntries || tocEntries.length === 0) return null;
+  let best = null;
+  for (const entry of tocEntries) {
+    if (entry.page <= page) {
+      best = entry;
+    } else {
+      break; // Las entries están ordenadas por página
+    }
+  }
+  return best ? best.title : null;
+}
+
+/**
+ * Lista todos los TOCs disponibles.
+ */
+export function listTOCs() {
+  ensureDir(TOC_DIR);
+  return fs.readdirSync(TOC_DIR).filter(f => f.endsWith(".json")).map(f => {
+    try {
+      const raw = fs.readFileSync(path.join(TOC_DIR, f), "utf-8");
+      const data = JSON.parse(raw);
+      return { file: f, libro: data.libro, entries: data.entries?.length || 0, extractedAt: data.extractedAt };
+    } catch {
+      return { file: f, libro: "?", entries: 0 };
+    }
+  });
 }
 
 // ============================================================

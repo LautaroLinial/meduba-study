@@ -34,7 +34,7 @@ async function getEmbeddingPipeline() {
 async function generateEmbedding(text) {
   const pipe = await getEmbeddingPipeline();
   // Truncar texto largo para el modelo
-  const truncated = text.substring(0, 512);
+  const truncated = text.substring(0, 1024);
   const output = await pipe(truncated, { pooling: "mean", normalize: true });
   return Array.from(output.data);
 }
@@ -78,7 +78,7 @@ export async function generateEmbeddingsForMaterial(year, materiaKey, fragments)
 
   for (let i = 0; i < fragments.length; i++) {
     const frag = fragments[i];
-    const truncated = frag.text.substring(0, 512);
+    const truncated = frag.text.substring(0, 1024);
     const output = await pipe(truncated, { pooling: "mean", normalize: true });
     const vector = Array.from(output.data);
 
