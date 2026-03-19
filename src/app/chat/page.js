@@ -83,6 +83,7 @@ function ChatContent() {
   const [availableModels, setAvailableModels] = useState([]);
   const [selectedModel, setSelectedModel] = useState("");
   const [showModelPicker, setShowModelPicker] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState(false);
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -285,6 +286,22 @@ function ChatContent() {
     if (!fragmentText) return [];
     return fragmentText.replace(/\n+/g, " ").replace(/\s+/g, " ")
       .split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 25).slice(0, maxSentences);
+  }
+
+  // Formatear texto del fragmento como párrafos legibles con términos anatómicos resaltados
+  function formatFragmentText(text) {
+    if (!text) return null;
+    // Limpiar y dividir en párrafos naturales
+    const cleaned = text.replace(/\s+/g, " ").trim();
+    // Dividir por oraciones y agrupar en párrafos de ~3-4 oraciones
+    const sentences = cleaned.split(/(?<=[.!?])\s+/).filter(s => s.trim().length > 10);
+    const paragraphs = [];
+    for (let i = 0; i < sentences.length; i += 4) {
+      paragraphs.push(sentences.slice(i, i + 4).join(" "));
+    }
+    return paragraphs.map((p, idx) => (
+      <p key={idx} style={{ margin: idx === 0 ? "0" : "14px 0 0", textIndent: idx > 0 ? "1.5em" : "0" }}>{p}</p>
+    ));
   }
 
   function formatMessageWithCitations(text, messageIndex) {
@@ -571,47 +588,61 @@ function ChatContent() {
                 />
               </div>
 
-              {/* Panel Lateral de Texto Extraído */}
-              <div style={{ width: "340px", background: "#161618", borderLeft: "1px solid #27272a", display: "flex", flexDirection: "column" }}>
-                <div style={{ padding: "20px", borderBottom: "1px solid #27272a" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-                    <span style={{ fontSize: "14px" }}>🔍</span>
-                    <span style={{ color: "white", fontSize: "13px", fontWeight: "600" }}>TEXTO DE ESTA PÁGINA</span>
+              {/* Panel Lateral - Extracto del Libro */}
+              <div style={{ width: "360px", background: "#131315", borderLeft: "1px solid #27272a", display: "flex", flexDirection: "column" }}>
+                {/* Header con número de página */}
+                <div style={{ padding: "20px 20px 16px", borderBottom: "1px solid #27272a" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <div style={{ width: "36px", height: "36px", borderRadius: "10px", background: `${colors.accent}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "16px" }}>📄</div>
+                      <div>
+                        <div style={{ color: "#fafafa", fontSize: "14px", fontWeight: "600" }}>Página {pageModal.page}</div>
+                        <div style={{ color: "#71717a", fontSize: "11px", marginTop: "1px" }}>{pageModal.libro}</div>
+                      </div>
+                    </div>
+                    <div style={{ background: `${colors.accent}15`, color: colors.accent, fontSize: "10px", fontWeight: "600", padding: "4px 10px", borderRadius: "20px", border: `1px solid ${colors.accent}30`, letterSpacing: "0.5px" }}>FUENTE</div>
                   </div>
-                  <p style={{ color: "#52525b", fontSize: "11px" }}>Fragmento clave analizado por el tutor:</p>
+                  <p style={{ color: "#52525b", fontSize: "11px", lineHeight: "1.4" }}>Texto del libro utilizado por el tutor para generar la respuesta.</p>
                 </div>
 
+                {/* Contenido del extracto */}
                 <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
                   {pageModal.fragmentText ? (
-                    getRelevantSentences(pageModal.fragmentText).map((sentence, idx) => (
-                      <div key={idx} style={{
-                        padding: "12px", borderRadius: "8px", background: "rgba(255,255,255,0.02)",
-                        borderLeft: `3px solid ${colors.accent}`, marginBottom: "12px",
-                        color: "#d4d4d8", fontSize: "12.5px", lineHeight: "1.6"
-                      }}>
-                        {sentence}
+                    <div style={{ background: "rgba(255,255,255,0.02)", borderRadius: "12px", border: "1px solid rgba(255,255,255,0.05)", overflow: "hidden" }}>
+                      {/* Barra superior del extracto */}
+                      <div style={{ padding: "10px 16px", background: "rgba(255,255,255,0.03)", borderBottom: "1px solid rgba(255,255,255,0.05)", display: "flex", alignItems: "center", gap: "6px" }}>
+                        <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: colors.accent, opacity: 0.6 }}></div>
+                        <span style={{ color: "#71717a", fontSize: "11px", fontWeight: "500" }}>Extracto del texto original</span>
                       </div>
-                    ))
+                      {/* Texto con formato de libro */}
+                      <div style={{ padding: "20px", color: "#c4c4c8", fontSize: "13px", lineHeight: "1.85", fontFamily: "'Georgia', 'Times New Roman', serif", textAlign: "justify", letterSpacing: "0.01em" }}>
+                        {formatFragmentText(pageModal.fragmentText)}
+                      </div>
+                    </div>
                   ) : (
-                    <div style={{ color: "#3f3f46", fontSize: "12px", textAlign: "center", marginTop: "40px" }}>No hay fragmentos disponibles.</div>
+                    <div style={{ color: "#3f3f46", fontSize: "12px", textAlign: "center", marginTop: "60px" }}>
+                      <div style={{ fontSize: "28px", marginBottom: "12px", opacity: 0.3 }}>📖</div>
+                      No hay texto disponible para esta página.
+                    </div>
                   )}
                 </div>
 
-                <div style={{ padding: "16px", borderTop: "1px solid #27272a" }}>
+                {/* Footer con acciones */}
+                <div style={{ padding: "12px 16px", borderTop: "1px solid #27272a", display: "flex", gap: "8px" }}>
                   <button onClick={() => {
                       navigator.clipboard.writeText(pageModal.fragmentText)
-                        .then(() => alert("Texto copiado al portapapeles"))
+                        .then(() => { setCopyFeedback(true); setTimeout(() => setCopyFeedback(false), 2000); })
                         .catch(() => {
-                          const ta = document.createElement("textarea");
-                          ta.value = pageModal.fragmentText;
-                          document.body.appendChild(ta);
-                          ta.select();
+                          const el = document.createElement("textarea");
+                          el.value = pageModal.fragmentText;
+                          document.body.appendChild(el);
+                          el.select();
                           document.execCommand("copy");
-                          document.body.removeChild(ta);
-                          alert("Texto copiado al portapapeles");
+                          document.body.removeChild(el);
+                          setCopyFeedback(true); setTimeout(() => setCopyFeedback(false), 2000);
                         });
-                  }} style={{ width: "100%", padding: "10px", borderRadius: "8px", background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#e4e4e7", cursor: "pointer", fontSize: "12px" }}>
-                    📋 Copiar fragmento completo
+                  }} style={{ flex: 1, padding: "10px", borderRadius: "8px", background: copyFeedback ? `${colors.accent}20` : "rgba(255,255,255,0.04)", border: `1px solid ${copyFeedback ? colors.accent + '40' : 'rgba(255,255,255,0.08)'}`, color: copyFeedback ? colors.accent : "#a1a1aa", cursor: "pointer", fontSize: "12px", fontWeight: "500", transition: "all 0.2s", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                    {copyFeedback ? "✓ Copiado" : "📋 Copiar texto"}
                   </button>
                 </div>
               </div>
