@@ -184,8 +184,19 @@ function ChatContent() {
     const r2Base = process.env.NEXT_PUBLIC_R2_URL?.replace(/\/$/, "");
     const fallbackUrl = `${r2Base}/${year}_${materiaKey}_${libroSafe}.pdf`;
 
-    setPageModal({ libro: libroCompleto, page, pageUrl, fallbackUrl, fragmentText: fragmentText || "" });
+    setPageModal({ libro: libroCompleto, page, pageUrl, fallbackUrl, fragmentText: fragmentText || "", libroSafe });
   }, [year, materiaKey, loadedLibros]);
+
+  // Navegar a página anterior/siguiente dentro del modal
+  const navigatePageModal = useCallback((delta) => {
+    if (!pageModal) return;
+    const newPage = parseInt(pageModal.page) + delta;
+    if (newPage < 1) return;
+    const pageUrl = `/api/pdf-page?year=${year}&materia=${materiaKey}&libro=${encodeURIComponent(pageModal.libro)}&page=${newPage}`;
+    const r2Base = process.env.NEXT_PUBLIC_R2_URL?.replace(/\/$/, "");
+    const fallbackUrl = `${r2Base}/${year}_${materiaKey}_${pageModal.libroSafe}.pdf`;
+    setPageModal(prev => ({ ...prev, page: newPage, pageUrl, fallbackUrl, fragmentText: "" }));
+  }, [pageModal, year, materiaKey]);
 
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return;
@@ -597,7 +608,10 @@ function ChatContent() {
                     <div style={{ color: colors.accent, fontSize: "12px" }}>Página {pageModal.page}</div>
                  </div>
               </div>
-              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                <button onClick={() => navigatePageModal(-1)} disabled={parseInt(pageModal.page) <= 1} title="Página anterior" style={{ color: parseInt(pageModal.page) <= 1 ? "#27272a" : "#a1a1aa", background: "rgba(255,255,255,0.05)", border: "none", width: "32px", height: "32px", borderRadius: "8px", cursor: parseInt(pageModal.page) <= 1 ? "not-allowed" : "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>▲</button>
+                <button onClick={() => navigatePageModal(1)} title="Página siguiente" style={{ color: "#a1a1aa", background: "rgba(255,255,255,0.05)", border: "none", width: "32px", height: "32px", borderRadius: "8px", cursor: "pointer", fontSize: "16px", display: "flex", alignItems: "center", justifyContent: "center" }}>▼</button>
+                <div style={{ width: "1px", height: "20px", background: "#27272a", margin: "0 2px" }}></div>
                 <button onClick={async () => { await clearPdfCache(); alert("Cache de PDFs limpiado"); }} title="Limpiar cache de PDFs" style={{ color: "#a1a1aa", background: "rgba(255,255,255,0.05)", border: "none", width: "32px", height: "32px", borderRadius: "8px", cursor: "pointer", fontSize: "14px" }}>🗑️</button>
                 <button onClick={() => setPageModal(null)} style={{ color: "#a1a1aa", background: "rgba(255,255,255,0.05)", border: "none", width: "32px", height: "32px", borderRadius: "8px", cursor: "pointer" }}>✕</button>
               </div>
