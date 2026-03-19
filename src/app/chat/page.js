@@ -84,6 +84,9 @@ function ChatContent() {
   const [selectedModel, setSelectedModel] = useState("");
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
+  const [hiddenModels, setHiddenModels] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("meduba_hidden_models") || "[]"); } catch { return []; }
+  });
 
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -464,36 +467,59 @@ function ChatContent() {
               <div style={{ padding: "6px 10px", fontSize: "10px", color: "#52525b", textTransform: "uppercase", letterSpacing: "1px", fontWeight: 600 }}>
                 Seleccioná un modelo
               </div>
-              {availableModels.map(m => (
-                <button
-                  key={m.id}
-                  onClick={() => {
-                    setSelectedModel(m.id);
-                    localStorage.setItem("meduba_model", m.id);
-                    setShowModelPicker(false);
-                  }}
-                  style={{
-                    display: "flex", flexDirection: "column", width: "100%", textAlign: "left",
-                    padding: "10px 12px", borderRadius: "8px", border: "none", cursor: "pointer",
-                    background: m.id === selectedModel ? `${colors.accent}15` : "transparent",
-                    marginBottom: "2px",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={{ color: "#e4e4e7", fontSize: "13px", fontWeight: 500 }}>{m.name}</span>
-                    <span style={{
-                      fontSize: "10px", padding: "2px 6px", borderRadius: "4px", fontWeight: 600,
-                      background: m.badge === "Gratis" ? "#10b98120" : m.badge === "Recomendado" ? `${colors.accent}20` : m.badge === "Premium" ? "#a855f720" : "#f59e0b20",
-                      color: m.badge === "Gratis" ? "#10b981" : m.badge === "Recomendado" ? colors.accent : m.badge === "Premium" ? "#a855f7" : "#f59e0b",
-                    }}>{m.badge}</span>
-                    {m.id === selectedModel && <span style={{ marginLeft: "auto", color: colors.accent, fontSize: "14px" }}>✓</span>}
-                  </div>
-                  <div style={{ fontSize: "11px", color: "#71717a", marginTop: "3px", lineHeight: "1.4" }}>{m.description}</div>
-                  <div style={{ fontSize: "10px", color: "#3f3f46", marginTop: "2px" }}>
-                    {m.inputCost === 0 ? "Gratis" : `$${m.inputCost} in / $${m.outputCost} out por 1M tokens`}
-                  </div>
-                </button>
+              {availableModels.filter(m => !hiddenModels.includes(m.id)).map(m => (
+                <div key={m.id} style={{ display: "flex", alignItems: "stretch", marginBottom: "2px", borderRadius: "8px", background: m.id === selectedModel ? `${colors.accent}15` : "transparent" }}>
+                  <button
+                    onClick={() => {
+                      setSelectedModel(m.id);
+                      localStorage.setItem("meduba_model", m.id);
+                      setShowModelPicker(false);
+                    }}
+                    style={{
+                      display: "flex", flexDirection: "column", flex: 1, textAlign: "left",
+                      padding: "10px 12px", borderRadius: "8px 0 0 8px", border: "none", cursor: "pointer",
+                      background: "transparent",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <span style={{ color: "#e4e4e7", fontSize: "13px", fontWeight: 500 }}>{m.name}</span>
+                      <span style={{
+                        fontSize: "10px", padding: "2px 6px", borderRadius: "4px", fontWeight: 600,
+                        background: m.badge === "Gratis" || m.badge === "Gratis ✨" ? "#10b98120" : m.badge === "Recomendado" ? `${colors.accent}20` : m.badge === "Premium" ? "#a855f720" : "#f59e0b20",
+                        color: m.badge === "Gratis" || m.badge === "Gratis ✨" ? "#10b981" : m.badge === "Recomendado" ? colors.accent : m.badge === "Premium" ? "#a855f7" : "#f59e0b",
+                      }}>{m.badge}</span>
+                      {m.id === selectedModel && <span style={{ marginLeft: "auto", color: colors.accent, fontSize: "14px" }}>✓</span>}
+                    </div>
+                    <div style={{ fontSize: "11px", color: "#71717a", marginTop: "3px", lineHeight: "1.4" }}>{m.description}</div>
+                    <div style={{ fontSize: "10px", color: "#3f3f46", marginTop: "2px" }}>
+                      {m.inputCost === 0 ? "Gratis" : `$${m.inputCost} in / $${m.outputCost} out por 1M tokens`}
+                    </div>
+                  </button>
+                  {m.id !== selectedModel && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const updated = [...hiddenModels, m.id];
+                        setHiddenModels(updated);
+                        localStorage.setItem("meduba_hidden_models", JSON.stringify(updated));
+                      }}
+                      title={`Ocultar ${m.name}`}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "32px", background: "transparent", border: "none", cursor: "pointer", color: "#3f3f46", fontSize: "12px", borderRadius: "0 8px 8px 0", flexShrink: 0 }}
+                    >✕</button>
+                  )}
+                </div>
               ))}
+              {hiddenModels.length > 0 && (
+                <button
+                  onClick={() => {
+                    setHiddenModels([]);
+                    localStorage.removeItem("meduba_hidden_models");
+                  }}
+                  style={{ width: "100%", padding: "8px", border: "none", background: "transparent", color: "#52525b", fontSize: "11px", cursor: "pointer", marginTop: "4px", borderTop: "1px solid rgba(255,255,255,0.05)" }}
+                >
+                  Restaurar {hiddenModels.length} modelo{hiddenModels.length > 1 ? "s" : ""} oculto{hiddenModels.length > 1 ? "s" : ""}
+                </button>
+              )}
             </div>
           )}
         </div>
