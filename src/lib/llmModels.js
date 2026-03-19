@@ -92,6 +92,30 @@ export const LLM_MODELS = {
     description: "Gratis. 1T+ params, contexto 1M. Nuevo, en prueba. Límite: 200 req/día.",
     badge: "Gratis ✨",
   },
+  "nemotron-super": {
+    id: "nemotron-super",
+    name: "Nemotron 3 Super",
+    provider: "openrouter",
+    model: "nvidia/nemotron-3-super-120b-a12b:free",
+    inputCost: 0,
+    outputCost: 0,
+    maxTokens: 4096,
+    quality: 4,
+    description: "Gratis. NVIDIA 120B params, contexto 262K. Límite: 200 req/día.",
+    badge: "Gratis",
+  },
+  "llama-70b-free": {
+    id: "llama-70b-free",
+    name: "Llama 3.3 70B",
+    provider: "openrouter",
+    model: "meta-llama/llama-3.3-70b-instruct:free",
+    inputCost: 0,
+    outputCost: 0,
+    maxTokens: 4096,
+    quality: 4,
+    description: "Gratis. Meta 70B, muy buen español. Límite: 200 req/día.",
+    badge: "Gratis",
+  },
 };
 
 // Modelo por defecto
