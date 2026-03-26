@@ -319,19 +319,19 @@ export default function AdminPage() {
                   {customLibro.trim() && (
                     <div>
                       <label style={{ display: "block", fontSize: "13px", color: "#71717a", marginBottom: "8px", fontWeight: 500 }}>Offset de páginas</label>
-                      <div style={{ padding: "12px 14px", borderRadius: "10px", background: "rgba(245,158,11,0.04)", border: "1px solid rgba(245,158,11,0.1)", marginBottom: "10px" }}>
+                      <div style={{ padding: "12px 14px", borderRadius: "10px", background: "rgba(34,197,94,0.04)", border: "1px solid rgba(34,197,94,0.1)", marginBottom: "10px" }}>
                         <p style={{ fontSize: "12px", color: "#a1a1aa", lineHeight: "1.5", margin: 0 }}>
-                          <strong style={{ color: "#e4e4e7" }}>Pág. libro - Pág. PDF = offset</strong>. Si coinciden, dejá 0.
+                          <strong style={{ color: "#22c55e" }}>Auto-detect activado.</strong> El sistema escanea el PDF y detecta automáticamente el número de página impresa. Solo poné un valor manual si el auto-detect falla.
                         </p>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                        <input type="number" value={pageOffset} onChange={(e) => setPageOffset(parseInt(e.target.value) || 0)}
+                        <input type="number" value={pageOffset} onChange={(e) => setPageOffset(e.target.value === "" ? "" : parseInt(e.target.value) || 0)} placeholder="Auto"
                           style={{
                             width: "100px", padding: "10px", borderRadius: "10px", fontSize: "16px",
                             background: "#18181b", border: "1px solid rgba(255,255,255,0.08)",
                             color: "#e4e4e7", outline: "none", textAlign: "center", fontFamily: "'JetBrains Mono', monospace",
                           }} />
-                        <span style={{ fontSize: "12px", color: "#52525b" }}>Pág. libro = Pág. PDF + ({pageOffset})</span>
+                        <span style={{ fontSize: "12px", color: "#52525b" }}>{pageOffset === "" || pageOffset === 0 ? "Auto-detect" : `Manual: Pág. libro = PDF + (${pageOffset})`}</span>
                       </div>
                     </div>
                   )}

@@ -28,6 +28,76 @@ function splitPageText(text, maxWords = 400) {
   return fragments;
 }
 
+/**
+ * Auto-detecta el offset entre el índice PDF (0-based) y el número de página impresa.
+ * Escanea varias páginas del PDF buscando números de página al inicio/final del texto.
+ * Retorna el offset más probable: printedPage = pdfIndex + 1 + offset
+ */
+function autoDetectPageOffset(doc, totalPages) {
+  const candidates = [];
+  // Muestrear páginas en diferentes zonas del libro (saltar las primeras 5 que suelen ser portada/índice)
+  const samplesToTry = [];
+  for (let i = 5; i < Math.min(totalPages, 80); i += 3) samplesToTry.push(i);
+
+  for (const pdfIdx of samplesToTry) {
+    try {
+      const page = doc.loadPage(pdfIdx);
+      const text = page.toStructuredText("preserve-whitespace").asText().trim();
+      if (text.length < 50) continue;
+
+      const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0);
+      if (lines.length < 3) continue;
+
+      // Buscar número de página al inicio (primera línea) o al final (última línea)
+      // Los libros de texto médicos suelen poner el número solo o con el título del capítulo
+      const checkLines = [
+        lines[0],                    // primera línea
+        lines[lines.length - 1],     // última línea
+        lines[1],                    // segunda línea (a veces la primera es header)
+        lines[lines.length - 2],     // penúltima
+      ];
+
+      for (const line of checkLines) {
+        // Patrón: línea que es solo un número, o empieza/termina con un número de 1-4 dígitos
+        const numOnlyMatch = line.match(/^(\d{1,4})$/);
+        const numStartMatch = line.match(/^(\d{1,4})\s+[A-ZÁÉÍÓÚ]/);
+        const numEndMatch = line.match(/[a-záéíóú.]\s+(\d{1,4})$/);
+
+        let printedPage = null;
+        if (numOnlyMatch) printedPage = parseInt(numOnlyMatch[1]);
+        else if (numStartMatch) printedPage = parseInt(numStartMatch[1]);
+        else if (numEndMatch) printedPage = parseInt(numEndMatch[1]);
+
+        if (printedPage !== null && printedPage > 0 && printedPage < 5000) {
+          const offset = printedPage - (pdfIdx + 1);
+          // Offset razonable: entre -200 y +200
+          if (Math.abs(offset) < 200) {
+            candidates.push(offset);
+            break; // una detección por página es suficiente
+          }
+        }
+      }
+    } catch (e) { continue; }
+  }
+
+  if (candidates.length < 3) {
+    console.log(`[auto-offset] No se pudo detectar offset (solo ${candidates.length} muestras). Usando 0.`);
+    return 0;
+  }
+
+  // Encontrar el offset más frecuente (moda)
+  const freq = {};
+  candidates.forEach(o => { freq[o] = (freq[o] || 0) + 1; });
+  const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+  const bestOffset = parseInt(sorted[0][0]);
+  const confidence = sorted[0][1] / candidates.length;
+
+  console.log(`[auto-offset] Offset detectado: ${bestOffset} (confianza: ${(confidence * 100).toFixed(0)}%, ${candidates.length} muestras)`);
+  console.log(`[auto-offset] Distribución:`, JSON.stringify(freq));
+
+  return bestOffset;
+}
+
 // ============================================================
 // PRE-RENDER EN BACKGROUND
 // Usa el doc ya cargado en memoria (sin re-descargar el PDF)
@@ -174,20 +244,20 @@ JSON:`,
 export async function POST(request) {
   try {
     const formData = await request.formData();
-    const file = formData.get("file");
-    const year = formData.get("year");
-    const materia = formData.get("materia");
-    const libro = formData.get("libro");
-    const pageOffset = parseInt(formData.get("pageOffset") || "0");
+    const file      = formData.get("file");
+    const year      = formData.get("year");
+    const materia   = formData.get("materia");
+    const libro     = formData.get("libro");
+    const manualOffset = formData.get("pageOffset");
 
     if (!file || !year || !materia || !libro) {
       return NextResponse.json({ error: "Faltan datos obligatorios." }, { status: 400 });
     }
 
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
+    const bytes       = await file.arrayBuffer();
+    const buffer      = Buffer.from(bytes);
     const pdfFileName = `${year}_${materia}_${safeFileName(libro)}.pdf`;
-    const pdfKeyBase = pdfFileName.replace(".pdf", "");
+    const pdfKeyBase  = pdfFileName.replace(".pdf", "");
 
     // ── PASO 1: Subir PDF a R2 ────────────────────────────────────
     console.log(`Subiendo ${pdfFileName} a Cloudflare R2...`);
@@ -198,12 +268,20 @@ export async function POST(request) {
     console.log("¡Subida completada!");
 
     // ── PASO 2: Extraer texto con mupdf ──────────────────────────
-    const doc = mupdf.Document.openDocument(buffer, "application/pdf");
+    const doc        = mupdf.Document.openDocument(buffer, "application/pdf");
     const totalPages = doc.countPages();
-    let fragments = [];
+
+    // Auto-detectar offset si el usuario no lo especificó
+    const pageOffset = (manualOffset !== null && manualOffset !== "")
+      ? parseInt(manualOffset)
+      : autoDetectPageOffset(doc, totalPages);
+
+    console.log(`[upload] Usando offset: ${pageOffset} (${manualOffset ? "manual" : "auto-detectado"})`);
+
+    let fragments    = [];
 
     for (let i = 0; i < totalPages; i++) {
-      const page = doc.loadPage(i);
+      const page     = doc.loadPage(i);
       const pageText = page.toStructuredText("preserve-whitespace").asText();
       if (pageText.trim().length < 20) continue;
 
@@ -215,10 +293,13 @@ export async function POST(request) {
     saveMaterialWithPages({ year: parseInt(year), materia, libro, fragments });
 
     // ── PASO 3: Guardar doc en cache compartido ───────────────────
+    // render-page lo usará sin re-descargar el PDF
     pdfDocCache.set(pdfFileName, { doc, totalPages });
     console.log(`[upload] PDF guardado en pdfDocCache: ${pdfFileName}`);
 
     // ── PASO 4: Pre-render de todas las páginas en background ─────
+    // No awaiteamos — el admin recibe la respuesta de inmediato
+    // y el render ocurre en segundo plano usando el doc en memoria
     preRenderAllPages(doc, totalPages, pdfKeyBase).catch((err) =>
       console.error("[pre-render] Error fatal:", err.message)
     );
@@ -234,9 +315,12 @@ export async function POST(request) {
     extractTOCInBackground(fragments, parseInt(year), materia, libro).catch((err) =>
       console.error("[extract-toc] Error fatal:", err.message)
     );
+
     return NextResponse.json({
       success: true,
-      message: `¡Libro en la nube! ${totalPages} páginas procesadas. Las imágenes se están generando en segundo plano.`,
+      message: `¡Libro en la nube! ${totalPages} páginas procesadas (offset: ${pageOffset >= 0 ? "+" : ""}${pageOffset}, ${manualOffset ? "manual" : "auto-detectado"}). Las imágenes se están generando en segundo plano.`,
+      pageOffset,
+      offsetSource: manualOffset ? "manual" : "auto",
     });
 
   } catch (error) {
